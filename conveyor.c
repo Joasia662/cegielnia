@@ -18,17 +18,22 @@ conveyor_t* conveyor_init(size_t max_bricks_count, size_t max_bricks_mass) {
     c->bricks_count = 0;
     c->bricks_mass = 0;
     c->leftover_brick.mass = 0;
+    c->truck_reservation = 0;
 
     // Attributes structures in both cases can be set to NULL
     // According to manual, these functions never encounter errors
     pthread_mutex_init(&(c->mutex), NULL);
     pthread_cond_init(&(c->space_freed_cond), NULL);
+    pthread_cond_init(&(c->new_brick_cond), NULL);
+    pthread_cond_init(&(c->truck_left_cond), NULL);
 
     int fds[2];
     if(pipe(fds) != 0) {
         // Error creating pipe - cleanup and return NULL
         pthread_mutex_destroy(&(c->mutex));
         pthread_cond_destroy(&(c->space_freed_cond));
+        pthread_cond_destroy(&(c->new_brick_cond));
+        pthread_cond_destroy(&(c->truck_left_cond));
         free(c);
 
         return NULL;
@@ -44,6 +49,8 @@ conveyor_t* conveyor_init(size_t max_bricks_count, size_t max_bricks_mass) {
 void conveyor_destroy(conveyor_t* c) {
     pthread_mutex_destroy(&(c->mutex));
     pthread_cond_destroy(&(c->space_freed_cond));
+    pthread_cond_destroy(&(c->new_brick_cond));
+    pthread_cond_destroy(&(c->truck_left_cond));
     close(c->read_fd);
     close(c->write_fd);
     free(c);
@@ -58,7 +65,7 @@ int _conveyor_has_space_for_brick(conveyor_t* c, brick_t b) {
 
 // Helper function to check if conveyor is empty
 int _conveyor_is_empty(conveyor_t* c) {
-    return c->bricks_count > 0;
+    return c->bricks_count == 0;
 }
 
 // Used by workers to insert new bricks onto the conveyor
@@ -91,7 +98,7 @@ void conveyor_insert_brick(conveyor_t* c, brick_t b) {
 // Available capacity should be the available mass capacity left for bricks weight
 // Positive return values mean that a brick was removed from the conveyor, and the value is its mass
 // Zero means that next brick is too heavy for us to carry
-size_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
+brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     // First ensure exclusive access to the counters by acquiring the mutex
     pthread_mutex_lock(&(c->mutex));
 
@@ -109,18 +116,56 @@ size_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     // Now check if we have enough weight available to carry the brick - if not, return 0
     if(c->leftover_brick.mass > available_capacity) {
         pthread_mutex_unlock(&(c->mutex));
-        return 0;
+        brick_t empty_brick;
+        empty_brick.mass = 0;
+        return empty_brick;
     }
 
     // If we have enough capacity we should remove the brick, change counters, and return its weight
-    size_t mass = c->leftover_brick.mass; // Store mass to return it
+    brick_t brick = c->leftover_brick; // Store the brick to return it
     c->leftover_brick.mass = 0; // Reset leftover brick (remove it from conveyor)
-    c->bricks_mass -= mass;
+    c->bricks_mass -= brick.mass;
     c-> bricks_count -= 1;
     
     // do not forget to unlock the mutex and signal that space was freed from the conveyor
     pthread_mutex_unlock(&(c->mutex));
     pthread_cond_signal(&(c->space_freed_cond));
 
-    return mass;
+    return brick;
+}
+
+// Function used by trucks to let everyone know they are now using the conveyor
+// (blocks until current truck leaves, if any)
+void conveyor_truck_reserve(conveyor_t* c, int id) {
+    // First ensure exclusive access to the conveyor
+    pthread_mutex_lock(&(c->mutex));
+
+    // While there is some other reservation, wait patiently for
+    // the signal that current truck has left
+    while(c->truck_reservation != 0) {
+        pthread_cond_wait(&(c->truck_left_cond), &(c->mutex));
+    };
+
+    // Once truck_reservation is empty, we can claim it
+    c->truck_reservation = id;
+
+    // Unlock the mutex afterwards
+    pthread_mutex_unlock(&(c->mutex));
+}
+
+// Function used by trucks to let everyone know they are leaving the conveyor
+void conveyor_truck_leave(conveyor_t* c, int id) {
+    // First ensure exclusive access to the conveyor
+    pthread_mutex_lock(&(c->mutex));
+
+    // sanity check - only free the reservation, if we had the reservation
+    // in the first place
+    if(c->truck_reservation == id)
+        c->truck_reservation = 0;
+
+    // Unlock the mutex afterwards
+    pthread_mutex_unlock(&(c->mutex));
+
+    // Let other trucks know that we left the conveyor
+    pthread_cond_signal(&(c->truck_left_cond));
 }

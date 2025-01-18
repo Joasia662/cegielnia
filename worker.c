@@ -31,6 +31,11 @@ int worker_start(worker_t* w) {
         return 0;
     };
 
+    // Sanity-check
+    if(w->id <= 0 || w->produced_brick_weight <= 0) {
+        return 0;
+    }
+
     // Try to start thread, and check result
     // We pass address of the _worker_main function as the thread routine
     int result = pthread_create(&(w->thread_id), NULL, _worker_main, (void*) w);
@@ -44,11 +49,6 @@ int worker_start(worker_t* w) {
 
 void* _worker_main(void* arg) {
     worker_t* w = (worker_t*) arg;
-
-    // Sanity-check
-    if(w->produced_brick_weight <= 0 || w->conveyor == NULL) {
-        return (void*) 0;
-    }
 
     // Store quick-access data in local variables
     conveyor_t* c = w->conveyor;
