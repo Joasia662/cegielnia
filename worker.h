@@ -6,6 +6,12 @@
 
 #include "conveyor.h"
 
+// These functions check global flag shared between threads
+// Only the main thread will write to the flag, others will only read it
+// in this case, synchronization is not critical to proper execution of the program
+void worker_stop_flag_set();
+int worker_stop_flag_is_set();
+
 struct worker_t {
     // worker id
     int id;

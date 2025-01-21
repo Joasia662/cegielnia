@@ -52,8 +52,13 @@ void conveyor_destroy(conveyor_t*);
 void conveyor_insert_brick(conveyor_t*, brick_t);
 
 // Used by trucks to load a brick from the conveyor
-// Returns size of brick if succesful, or 0 if next brick exceeds capacity
+// Returns size of brick if succesful
+// Returns brick of size 0 if next brick exceeds capacity or if theres no more bricks
+// The worker_stop_flag_is_set() should be consulted for the second case
 brick_t conveyor_remove_brick(conveyor_t*, size_t);
+
+// returns 1 if there will be no more bricks (worker_stop_flag set, and conveyor empty)
+int conveyor_end_of_bricks(conveyor_t*);
 
 // Function used by trucks to let everyone know they are now using the conveyor
 // (blocks until current truck leaves, if any)

@@ -1,5 +1,7 @@
 #include "truck.h"
 
+#include "worker.h"
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -57,7 +59,8 @@ void* _truck_main(void* arg) {
     printf("[C%d] Truck started with data: { max_capacity: %zu, sleep_time: %ds, conveyor reference: %p }\n", id, max_capacity, sleep_time, (void*) c);
 
     // Reserving-leaving loop
-    while(1) {
+    // Exit once no more bricks
+    while(!conveyor_end_of_bricks(c)) {
         // Wait to reserve the conveyor for loading
         conveyor_truck_reserve(c, id);
 
@@ -65,6 +68,7 @@ void* _truck_main(void* arg) {
 
         // Brick-removing loop
         while(1) {
+
             // Try to remove the next brick
             brick_t new_brick = conveyor_remove_brick(c, t->current_capacity);
 
@@ -73,7 +77,7 @@ void* _truck_main(void* arg) {
                 if(new_brick.mass > t->current_capacity) {
                     printf("[C%d] ERROR truck received a brick of mass %zu which exceeds current capacity %zu - THIS SHOULD NEVER HAPPEN\n", id, (size_t) new_brick.mass, t->current_capacity);
 
-                    // leave the conveyor immediately and tr to fix the situation during delivery
+                    // leave the conveyor immediately and try to fix the situation during delivery
                     break;
                 };
 
@@ -81,7 +85,8 @@ void* _truck_main(void* arg) {
                 printf("[C%d] Truck received a brick of mass %zu - capacity: %zu/%zu\n", id, (size_t) new_brick.mass, t->current_capacity, max_capacity);
             } else {
                 // If mass is 0, it means the next brick was not removed as it exceeded the capacity
-                // Break out of the inner loop (the brick-removing loop)
+                // OR theres no more bricks
+                // Break out of the inner loop (the brick-removing loop) and the outer loop will check if theres still workers working
                 break;
             }
         }
@@ -96,4 +101,8 @@ void* _truck_main(void* arg) {
         sleep(sleep_time);
         t->current_capacity = max_capacity;
     }
+
+    printf("[C%d] Truck finishing work, due to no more bricks\n", id);
+
+    pthread_exit(NULL);
 }

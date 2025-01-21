@@ -1,5 +1,7 @@
 #include "conveyor.h"
 
+#include "worker.h"
+
 #include <pthread.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -85,7 +87,7 @@ void conveyor_insert_brick(conveyor_t* c, brick_t b) {
     c->bricks_count++;
     c->bricks_mass += b.mass;
 
-    printf("DEBUG CONVEYOR: current count: %zu, current mass: %zu\n", c->bricks_count, c->bricks_mass);
+    printf("[CONVEYOR]: EVENT_INSERT(%d) Current count: %zu, current mass: %zu\n", b.mass, c->bricks_count, c->bricks_mass);
 
     // Unlock the mutex for other threads to use
     pthread_mutex_unlock(&(c->mutex));
@@ -105,7 +107,14 @@ brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     // If its not possible to fit the brick into the conveyor, wait for a signal
     // from a truck that space was freed
     while(_conveyor_is_empty(c)) {
-        pthread_cond_wait(&(c->new_brick_cond), &(c->mutex));
+        if(!worker_stop_flag_is_set()) { // If there is still workers working, wait for new brick
+            pthread_cond_wait(&(c->new_brick_cond), &(c->mutex));
+        } else { // Otherwise, return empty brick to signify end of bricks
+            pthread_mutex_unlock(&(c->mutex));
+            printf("[CONVEYOR]: Current count: %zu, current mass: %zu\n", c->bricks_count, c->bricks_mass);
+            brick_t empty_brick = { .mass = 0 };
+            return empty_brick;
+        }
     }
 
     // If there is no leftover brick, extract one from the pipe
@@ -116,8 +125,7 @@ brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     // Now check if we have enough weight available to carry the brick - if not, return 0
     if(c->leftover_brick.mass > available_capacity) {
         pthread_mutex_unlock(&(c->mutex));
-        brick_t empty_brick;
-        empty_brick.mass = 0;
+        brick_t empty_brick = { .mass = 0 };
         return empty_brick;
     }
 
@@ -126,12 +134,23 @@ brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     c->leftover_brick.mass = 0; // Reset leftover brick (remove it from conveyor)
     c->bricks_mass -= brick.mass;
     c-> bricks_count -= 1;
+
+    printf("[CONVEYOR]: EVENT_REMOVE(%d) Current count: %zu, current mass: %zu\n", brick.mass, c->bricks_count, c->bricks_mass);
     
     // do not forget to unlock the mutex and signal that space was freed from the conveyor
     pthread_mutex_unlock(&(c->mutex));
     pthread_cond_signal(&(c->space_freed_cond));
 
     return brick;
+}
+
+int conveyor_end_of_bricks(conveyor_t* c) {
+    pthread_mutex_lock(&(c->mutex));
+
+    int result = _conveyor_is_empty(c) && worker_stop_flag_is_set();
+
+    pthread_mutex_unlock(&(c->mutex));
+    return result;
 }
 
 // Function used by trucks to let everyone know they are now using the conveyor

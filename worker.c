@@ -10,6 +10,16 @@
 // worker thread main function (defined at the bottom)
 void* _worker_main(void*);
 
+// Global stop flag used by worker threads
+int _stop_flag = 0;
+
+void worker_stop_flag_set() {
+    _stop_flag = 1;
+}
+
+int worker_stop_flag_is_set() {
+    return _stop_flag;
+}
 
 worker_t* worker_init(int id, size_t weight, conveyor_t* c) {
     worker_t* w = malloc(sizeof(worker_t));
@@ -57,13 +67,18 @@ void* _worker_main(void* arg) {
 
     printf("[P%d] Worker started with data: { weight: %zu, conveyor reference: %p }\n", id, weight, (void*) c);
 
-    while(1) {
+    while(!worker_stop_flag_is_set()) {
         // Create new brick
         brick_t new_brick = { .mass = weight };
 
+        printf("[P%d] trying to insert brick of weight %zu into the conveyor\n", id, weight);
         // Try to insert it
         conveyor_insert_brick(c, new_brick);
 
         printf("[P%d] Succesfully inserted brick of weight %zu into the conveyor\n", id, weight);
     };
+
+    printf("[P%d] Worker saw stop_flag set to 1, finishing work\n", id);
+
+    pthread_exit(NULL);
 }
