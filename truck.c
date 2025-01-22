@@ -68,6 +68,7 @@ void* _truck_main(void* arg) {
 
         // Brick-removing loop
         while(1) {
+            printf("[C%d] Truck attempting to remove next brick - capacity: %zu/%zu\n", id, t->current_capacity, max_capacity);
 
             // Try to remove the next brick
             brick_t new_brick = conveyor_remove_brick(c, t->current_capacity);

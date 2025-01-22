@@ -104,8 +104,7 @@ brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
     // First ensure exclusive access to the counters by acquiring the mutex
     pthread_mutex_lock(&(c->mutex));
 
-    // If its not possible to fit the brick into the conveyor, wait for a signal
-    // from a truck that space was freed
+    // If there is no bricks on the conveyor, wait for a signal that one appeared
     while(_conveyor_is_empty(c)) {
         if(!worker_stop_flag_is_set()) { // If there is still workers working, wait for new brick
             pthread_cond_wait(&(c->new_brick_cond), &(c->mutex));

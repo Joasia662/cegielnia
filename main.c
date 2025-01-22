@@ -1,20 +1,11 @@
 #include "conveyor.h"
 #include "worker.h"
 #include "truck.h"
+#include "sim.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
-
-// test constants
-#define K 100
-#define M 200 // 3K > M
-
-#define Nw 3 // number of workers
-
-#define C 50 // Capacity of a truck
-#define Nt 10 // Number of trucks
-#define Ti 5 // Delivery (sleep) time of a truck in seconds
 
 
 // SIGUSR2 tells workers to stop
@@ -27,7 +18,10 @@ struct sigaction usr2_sigaction = {
 };
 
 int main() {
-    conveyor_t* conveyor = conveyor_init(K, M);
+    sim_params_t params = { 0 };
+    sim_query_user_for_params(&params);
+
+    conveyor_t* conveyor = conveyor_init(params.max_bricks_count, params.max_bricks_mass);
 
     if(!conveyor) {
         puts("Error while creating conveyor");
@@ -45,8 +39,8 @@ int main() {
         exit(0);
     };
 
-    worker_t* workers[Nw];
-    for(int i = 0; i < Nw; i++) {
+    worker_t* workers[SIM_NUM_WORKERS];
+    for(int i = 0; i < SIM_NUM_WORKERS; i++) {
         workers[i] = worker_init(i + 1, i + 1, conveyor);
 
         if(workers[i] == NULL) {
@@ -55,7 +49,7 @@ int main() {
         }
     };
 
-    for(int i = 0; i < Nw; i++) {
+    for(int i = 0; i < SIM_NUM_WORKERS; i++) {
         int result = worker_start(workers[i]);
 
         if(result == 0) {
@@ -64,17 +58,17 @@ int main() {
         };
     };
 
-    truck_t* trucks[Nt];
-    for(int i = 0; i < Nt; i++) {
-        trucks[i] = truck_init(i + 1, C, Ti, conveyor);
+    truck_t* trucks[params.truck_count];
+    for(size_t i = 0; i < params.truck_count; i++) {
+        trucks[i] = truck_init(i + 1, params.truck_capacity, params.truck_sleep_time, conveyor);
 
         if(trucks[i] == NULL) {
-            printf("Error while creating truck with id %d\n", i + 1);
+            printf("Error while creating truck with id %lu\n", i + 1);
             exit(0);
         }
     };
 
-    for(int i = 0; i < Nt; i++) {
+    for(size_t i = 0; i < params.truck_count; i++) {
         int result = truck_start(trucks[i]);
 
         if(result == 0) {
@@ -93,13 +87,13 @@ int main() {
     pthread_sigmask(SIG_UNBLOCK, &set, NULL); // Set all signals to unblock
 
     // Join threads
-    for(int i = 0; i < Nw; i++) {
+    for(int i = 0; i < SIM_NUM_WORKERS; i++) {
         pthread_join(workers[i]->thread_id, NULL);
         printf("[Main] Finished waiting for worker %d\n", workers[i]->id);
     };
 
 
-    for(int i = 0; i < Nt; i++) {
+    for(size_t i = 0; i < params.truck_count; i++) {
         pthread_join(trucks[i]->thread_id, NULL);
         printf("[Main] Finished waiting for truck %d\n", trucks[i]->id);
     };
