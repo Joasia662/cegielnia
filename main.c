@@ -84,7 +84,11 @@ int main() {
     };
 
     // Unblock the signals after creating workers and installing signal handlers
-    pthread_sigmask(SIG_UNBLOCK, &set, NULL); // Set all signals to unblock
+    result = pthread_sigmask(SIG_UNBLOCK, &set, NULL); // Set all signals to unblock
+    if(result != 0) {
+        puts("Error while unblocking signals in main");
+        exit(0);
+    };
 
     // Join threads
     for(int i = 0; i < SIM_NUM_WORKERS; i++) {
