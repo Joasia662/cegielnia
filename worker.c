@@ -48,7 +48,7 @@ int worker_start(worker_t* w) {
 
     // Try to start thread, and check result
     // We pass address of the _worker_main function as the thread routine
-    int result = pthread_create(&(w->thread_id), NULL, _worker_main, (void*) w);
+    int result = pthread_create(&(w->thread_id), NULL, &_worker_main, (void*) w);
     if(result != 0) {
         return 0;
     };
@@ -75,7 +75,7 @@ void* _worker_main(void* arg) {
         // Try to insert it
         conveyor_insert_brick(c, new_brick);
 
-        printf("[P%d] Succesfully inserted brick of weight %zu into the conveyor\n", id, weight);
+        printf("[P%d] EVENT_WORKER_INSERT(%d) Succesfully inserted brick of weight %zu into the conveyor\n", id, id, weight);
     };
 
     printf("[P%d] Worker saw stop_flag set to 1, finishing work\n", id);

@@ -37,7 +37,7 @@ int truck_start(truck_t* t) {
 
     // Try to start thread, and check result
     // We pass address of the _truck_main function as the thread routine
-    int result = pthread_create(&(t->thread_id), NULL, _truck_main, (void*) t);
+    int result = pthread_create(&(t->thread_id), NULL, &_truck_main, (void*) t);
     if(result != 0) {
         return 0;
     };
@@ -56,7 +56,7 @@ void* _truck_main(void* arg) {
     size_t max_capacity = t->max_capacity;
     unsigned int sleep_time = t->sleep_time;
 
-    printf("[C%d] Truck started with data: { max_capacity: %zu, sleep_time: %ds, conveyor reference: %p }\n", id, max_capacity, sleep_time, (void*) c);
+    printf("[C%d] EVENT_TRUCK_START(%d) with data: { max_capacity: %zu, sleep_time: %ds, conveyor reference: %p }\n", id, id, max_capacity, sleep_time, (void*) c);
 
     // Reserving-leaving loop
     // Exit once no more bricks
@@ -72,7 +72,6 @@ void* _truck_main(void* arg) {
 
             // Try to remove the next brick
             brick_t new_brick = conveyor_remove_brick(c, t->current_capacity);
-
             if(new_brick.mass > 0) {
                 // Sanity check
                 if(new_brick.mass > t->current_capacity) {
@@ -83,7 +82,7 @@ void* _truck_main(void* arg) {
                 };
 
                 t->current_capacity -= new_brick.mass;
-                printf("[C%d] Truck received a brick of mass %zu - capacity: %zu/%zu\n", id, (size_t) new_brick.mass, t->current_capacity, max_capacity);
+                printf("[C%d] EVENT_TRUCK_REMOVAL(%d,%zu) Truck received a brick of mass %zu - capacity: %zu/%zu\n", id, id, (size_t) new_brick.mass, (size_t) new_brick.mass, t->current_capacity, max_capacity);
             } else {
                 // If mass is 0, it means the next brick was not removed as it exceeded the capacity
                 // OR theres no more bricks

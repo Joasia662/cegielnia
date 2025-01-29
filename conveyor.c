@@ -1,12 +1,12 @@
 #include "conveyor.h"
-
 #include "worker.h"
 
+#include <errno.h>
 #include <pthread.h>
-#include <unistd.h>
+#include <unistd.h> 
 #include <stdlib.h>
-
 #include <stdio.h>
+#include <string.h>
 
 // Creates a new dynamically allocated conveyor belt structure
 conveyor_t* conveyor_init(size_t max_bricks_count, size_t max_bricks_mass) {
@@ -31,13 +31,13 @@ conveyor_t* conveyor_init(size_t max_bricks_count, size_t max_bricks_mass) {
 
     int fds[2];
     if(pipe(fds) != 0) {
-        // Error creating pipe - cleanup and return NULL
+        int errno_tmp = errno;
         pthread_mutex_destroy(&(c->mutex));
         pthread_cond_destroy(&(c->space_freed_cond));
         pthread_cond_destroy(&(c->new_brick_cond));
         pthread_cond_destroy(&(c->truck_left_cond));
         free(c);
-
+        fprintf(stderr, "Error creating pipe - cleanup and return NULL: %s\n", strerror(errno_tmp));
         return NULL;
     }
 
@@ -83,12 +83,17 @@ void conveyor_insert_brick(conveyor_t* c, brick_t b) {
 
     // After exiting the loop we have acquired the mutex and are sure there is enough space in the conveyor
     // Write the 1-byte brick to the pipe, and update the counters
-    write(c->write_fd, (void*) &b, sizeof(brick_t));
-    c->bricks_count++;
-    c->bricks_mass += b.mass;
-
-    printf("[CONVEYOR]: EVENT_INSERT(%d) Current count: %zu, current mass: %zu\n", b.mass, c->bricks_count, c->bricks_mass);
-
+    ssize_t status_w = write(c->write_fd, (void*) &b, sizeof(brick_t));
+    if(status_w > 0 ){
+        c->bricks_count++;
+        c->bricks_mass += b.mass;
+        printf("[CONVEYOR]: EVENT_INSERT(%d) Current count: %zu, current mass: %zu\n", b.mass, c->bricks_count, c->bricks_mass);
+    }
+    else{
+        int errno_tmp = errno;
+        fprintf(stderr, "Error while writting to the pipe: %s\n", strerror(errno_tmp));
+    }
+    
     // Unlock the mutex for other threads to use
     pthread_mutex_unlock(&(c->mutex));
 
@@ -116,9 +121,16 @@ brick_t conveyor_remove_brick(conveyor_t* c, size_t available_capacity) {
         }
     }
 
+    
     // If there is no leftover brick, extract one from the pipe
     if(c->leftover_brick.mass == 0) {
-        read(c->read_fd, (void*) &(c->leftover_brick), sizeof(brick_t));
+        ssize_t status_r = read(c->read_fd, (void*) &(c->leftover_brick), sizeof(brick_t));
+        if(status_r <0){
+        int errno_tmp = errno;
+        fprintf(stderr, "Error while reading from: %s\n", strerror(errno_tmp));
+        brick_t invalid_brick = { .mass = 0 };
+        return invalid_brick;
+        }
     }
 
     // Now check if we have enough weight available to carry the brick - if not, return 0

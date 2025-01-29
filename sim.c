@@ -41,11 +41,9 @@ unsigned long _get_number_from_user(char* buffer, size_t max_length) {
     fgets(buffer, max_length, stdin);
     _remove_newline(buffer, max_length);
 
-    while(_try_parse_number(buffer, &result) != 0) {
-        fprintf(stderr, "Error - cannot parse input \"%s\" as number - try again:\n", buffer);
-
-        fgets(buffer, max_length, stdin);
-        _remove_newline(buffer, max_length);
+    if(_try_parse_number(buffer, &result) != 0) {
+        fprintf(stderr, "Error - cannot parse input \"%s\" as number\n", buffer);
+        exit(0);
     };
 
     return result;
@@ -58,43 +56,53 @@ void sim_query_user_for_params(sim_params_t* p) {
 
     fprintf(stderr, "%s\n", "Initialize simulation parameters:");
     fprintf(stderr, "%s\n", "Input the maximum number of bricks in the conveyor (K)");
-    do {
-        fprintf(stderr, "%s\n", "in the range of <3, 5000>:");
-        current_value = _get_number_from_user(buffer, BUFFER_SIZE);
-    } while(current_value < 3 || current_value > 5000);
-
+    fprintf(stderr, "%s\n", "in the range of <3, 5000>:");
+    current_value = _get_number_from_user(buffer, BUFFER_SIZE);
+    
+    if(current_value < 3 || current_value > 5000){
+        fprintf(stderr, "Error - input value is outside the range or invalid number. The program is terminated\n");
+        exit(0);
+    }
     p->max_bricks_count = (size_t) current_value;
 
     fprintf(stderr, "%s\n", "Input the maximum total mass of bricks in the conveyor (M)");
-    do {
-        fprintf(stderr, "in the range of <6, %lu>:\n", (3 * p->max_bricks_count) - 1); // 3K > M")
-        current_value = _get_number_from_user(buffer, BUFFER_SIZE);
-    } while(current_value < 6 || current_value > ((3 * p->max_bricks_count) - 1));
-
+    fprintf(stderr, "in the range of <6, %lu>:\n", (3 * p->max_bricks_count) - 1); // 3K > M")
+    current_value = _get_number_from_user(buffer, BUFFER_SIZE);
+    
+    if(current_value < 6 || current_value > ((3 * p->max_bricks_count) - 1)){
+        fprintf(stderr, "Error - input value is outside the range or invalid number. The program is terminated\n");
+        exit(0);
+    }
     p->max_bricks_mass = (size_t) current_value;
 
     fprintf(stderr, "%s\n", "Input maximum total mass of bricks in a single truck (capacity, C)");
-    do {
-        fprintf(stderr, "%s\n", "in the range of <3, 500>:");
-        current_value = _get_number_from_user(buffer, BUFFER_SIZE);
-    } while(current_value < 3 || current_value > 500);
-
+    fprintf(stderr, "%s\n", "in the range of <3, 500>:");
+    current_value = _get_number_from_user(buffer, BUFFER_SIZE);
+    
+    if(current_value < 3 || current_value > 500){
+        fprintf(stderr, "Error - input value is outside the range or invalid number. The program is terminated\n");
+        exit(0);
+    }
     p->truck_capacity = (size_t) current_value;
 
     fprintf(stderr, "%s\n", "Input number of trucks (N)");
-    do {
-        fprintf(stderr, "%s\n", "in the range of <1, 20>:");
-        current_value = _get_number_from_user(buffer, BUFFER_SIZE);
-    } while(current_value == 0 || current_value > 20);
-
+    fprintf(stderr, "%s\n", "in the range of <1, 20>:");
+    current_value = _get_number_from_user(buffer, BUFFER_SIZE);
+    
+    if(current_value == 0 || current_value > 20){
+        fprintf(stderr, "Error - input value is outside the range or invalid number. The program is terminated\n");
+        exit(0);
+    }
     p->truck_count = (size_t) current_value;
 
     fprintf(stderr, "%s\n", "Input truck sleep time (Ti) in seconds");
-    do {
-        fprintf(stderr, "%s\n", "in the range of <1, 20>:");
-        current_value = _get_number_from_user(buffer, BUFFER_SIZE);
-    } while(current_value == 0 || current_value > 20);
+    fprintf(stderr, "%s\n", "in the range of <1, 20>:");
+    current_value = _get_number_from_user(buffer, BUFFER_SIZE);
 
+    if(current_value == 0 || current_value > 20){
+        fprintf(stderr, "Error - input value is outside the range or invalid number. The program is terminated\n");
+        exit(0);
+    }
     p->truck_sleep_time = current_value;
 
     fprintf(stderr, "%s\n", "simulation summary:");
