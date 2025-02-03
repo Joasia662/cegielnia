@@ -8,6 +8,8 @@ At the same time, bricks "ride" off the belt onto the truck in exactly the same 
 Employees create bricks endlessly and trucks deliver them endlessly. To stop the simulation, a distributor command is needed, which is simulated by sending the USR2 signal to the process. It signals the end of production (setting the appropriate flag).
 
 To test the correctness of the code, two tests were created:
+
+
 • The first one (verify_sum.py) accepts application logs and, by analyzing events in the conveyor module, checks whether the number of bricks entered equals the sum of bricks output.
 
 • The second one (check_stats.py), by analyzing logs from the worker and truck modules, displays how much work each worker and truck did. For example, this allows us to determine which thread used the conveyor module resources more often. Additionally, we check whether the sum of the masses of bricks that were produced and those that were taken away by trucks matches.
