@@ -1,4 +1,6 @@
+#include "worker.h"
 #include "conveyor.h"
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -23,4 +25,3 @@ int main() {
     worker_main();
     return 0;
 }
-s

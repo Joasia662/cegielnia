@@ -27,7 +27,7 @@ int main() {
     sim_params_t params = {0};
     sim_query_user_for_params(&params);
 
-    conveyor_t* conveyor = conveyor_init(params.max_bricks_count, params.max_bricks_mass);
+    shared_memory_t* conveyor = conveyor_init(params.max_bricks_count, params.max_bricks_mass);
     if (!conveyor) {
         perror("Error creating conveyor");
         exit(EXIT_FAILURE);
@@ -61,6 +61,6 @@ int main() {
         waitpid(truck_pids[i], NULL, 0);
     }
 
-    conveyor_destroy(conveyor);
+    conveyor_destroy();
     return 0;
 }

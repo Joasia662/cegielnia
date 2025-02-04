@@ -1,4 +1,6 @@
+#include "truck.h"
 #include "conveyor.h"
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
