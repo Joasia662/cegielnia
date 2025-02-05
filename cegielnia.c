@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <semaphore.h>
 
 #include "common.h"
 #include "messages.h"
@@ -56,6 +57,20 @@ int main() {
         exit(1);
     }
 
+    // Create semaphore with value zero, used to signal between trucks and conveyor
+    errno = 0;
+    sem_t* sem = sem_open(LOADING_ZONE_SEM_NAME, O_CREAT | O_RDWR | O_EXCL, 0600, 0);
+    if(sem == SEM_FAILED) {
+        printf("Error while creating a semaphore: %s\n", strerror(errno));
+        cleanup_queues();
+        exit(1);
+    }
+
+    errno = 0;
+    if(sem_close(sem) < 0) {
+        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+    }
+
     // Spawn conveyor process
     char* argv_conv[] = {"./conveyor", NULL};
     pid_t tmp = spawn_child("./conveyor", argv_conv);
@@ -63,6 +78,7 @@ int main() {
         puts("Error while spawning conveyor");
         cleanup_queues();
         cleanup_shared_loading_zone();
+        sem_unlink(LOADING_ZONE_SEM_NAME);
         exit(1);
     }
 
@@ -76,6 +92,7 @@ int main() {
         puts("Error while spawning trucks");
         cleanup_queues();
         cleanup_shared_loading_zone();
+        sem_unlink(LOADING_ZONE_SEM_NAME);
         exit(1);
     }
 
@@ -112,6 +129,7 @@ int main() {
 
             cleanup_queues();
             cleanup_shared_loading_zone();
+            sem_unlink(LOADING_ZONE_SEM_NAME);
             exit(1);
         }
 
@@ -136,6 +154,7 @@ int main() {
             printf("Control error sending message: %s\n", strerror(errno));
             cleanup_queues();
             cleanup_shared_loading_zone();
+            sem_unlink(LOADING_ZONE_SEM_NAME);
             exit(1);
         }
     }
@@ -151,6 +170,7 @@ int main() {
         printf("Control error sending message: %s\n", strerror(errno));
         cleanup_queues();
         cleanup_shared_loading_zone();
+        sem_unlink(LOADING_ZONE_SEM_NAME);
         exit(1);
     }
 
@@ -174,6 +194,7 @@ int main() {
 
     cleanup_queues();
     cleanup_shared_loading_zone();
+    sem_unlink(LOADING_ZONE_SEM_NAME);
 }
 
 pid_t spawn_child(char* executable_file, char** argv) {

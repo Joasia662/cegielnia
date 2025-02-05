@@ -18,6 +18,9 @@ typedef struct message_t message_t;
 #define MSG_TYPE_NEW_BRICK 3 // Worker sends this to conveyor to ask it if it will accept a new brick, data[0] is worker id (so also weight of brick)
 #define MSG_TYPE_NEW_BRICK_RESP 4 // Conveyor responds to worker with this, status is APPROVE / DENY, data ignored
 
+#define MSG_TYPE_TRUCK_LOADING_REQUEST 5 // Trucks sends this to request that conveyor allows them to load bricks, both status and data are ignored
+#define MSG_TYPE_TRUCK_LOADING_RESP 6 // Conveyor responds with this to the LOADING_REQUEST, status means whether the truck is allowed/denied from loading
+
 #define MSG_TYPE_END_OF_WORK 99 // Worker sends this to conveyor to signify that there will be no more bricks, status is ignored, data[0] is worker id
 
 // status constants

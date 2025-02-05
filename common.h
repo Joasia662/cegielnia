@@ -26,7 +26,10 @@ char* common_get_worker_response_queue_name(int id);
 struct mq_attr* get_mq_attrs();
 
 // Name for the posix shared memory segment for shared loading zone
-#define LOADING_ZONE_SHM_NAME "/conveyor_loading_zone"
+#define LOADING_ZONE_SHM_NAME "/conveyor_loading_zone_shm"
+
+// Name for the posix semaphore which protects access to the loading zone while a truck is loading
+#define LOADING_ZONE_SEM_NAME "/conveyor_loading_zone_sem"
 
 // A loading zone for trucks, placed in memory shared between conveyor and trucks
 struct shared_loading_zone_t {
@@ -42,6 +45,9 @@ struct shared_loading_zone_t {
 
     // Space to hold the next brick, while the truck checks if it has space to load it
     uint8_t leftover_brick;
+
+    // Flag to let trucks know that there will be no more bricks
+    int production_stopped;
 };
 typedef struct shared_loading_zone_t shared_loading_zone_t;
 

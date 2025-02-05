@@ -78,6 +78,8 @@ int init_shared_loading_zone(int max_count, int max_mass) {
 
     zone->leftover_brick = 0;
 
+    zone->production_stopped = 0;
+
     int pipe_fd[2];
     errno = 0;
     if(pipe(pipe_fd) < 0) {
