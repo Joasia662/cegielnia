@@ -111,6 +111,23 @@ int main() {// Open semaphore used to signal end of loading
         exit(1);
     };
 
+    int defout = dup(1);
+    if(defout <0){
+        printf("Truck error: can't dump(2): %s\n",  strerror(errno));
+        exit(1);
+    }
+
+    int file = open( "truck_log.txt", O_WRONLY | O_CREAT, 0600);
+    if(file ==-1){
+        printf("Truck error: creating log files failed: %s\n",  strerror(errno));
+        exit(1);
+    }
+    int file2 = dup2(file,STDOUT_FILENO);
+        if(file2 ==-1){
+        printf("Truck error: duplicate a file desriptor failed: %s\n",  strerror(errno));
+        exit(1);
+    }
+
     printf("Trucks reporting ready for work! Waiting for signal...\n");
 
     // Buffer for receiving and sending messages
@@ -221,6 +238,13 @@ int main() {// Open semaphore used to signal end of loading
         }
     }
 
+    fflush(stdout);
+    if(dup2(defout,1)<0){
+        printf("Truck error: cannot redirect output back to stdout: %s\n",  strerror(errno));
+        exit(1);
+    }
+
+    close(defout);
     close_queues(input_queue, conveyor_input_queue);
     munmap_and_close_shm(shm_fd, zone);
         
@@ -260,6 +284,9 @@ int open_queues(mqd_t* input_queue, mqd_t* conveyor_input_queue) {
     *conveyor_input_queue = tmp;
 
     printf("Trucks opened conveyor input queue \"%s\"\n", CONVEYOR_INPUT_QUEUE_NAME);
+
+    
+
     return 0;
 }
 
