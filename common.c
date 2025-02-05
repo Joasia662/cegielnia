@@ -26,25 +26,6 @@ char* common_get_worker_response_queue_name(int id) {
     return _queue_names[id - 1];
 }
 
-int common_str_to_int(char* str, long* result) {
-    char* endptr = str;
-    errno = 0;
-    long tmp = strtol(str, &endptr, 10); // base is 10, we expect a decimal
-    if(tmp == LONG_MAX || tmp == LONG_MIN || endptr == str) { // According to manual, those may signify an error
-        if(errno != 0) {
-            printf("Error converting string \"%s\" to number: %s\n", str, strerror(errno));
-        } else {
-            printf("Error converting string \"%s\" to number: invalid value\n", str);
-        }
-
-        return -1;
-    }
-
-    *result = tmp;
-
-    return 0;
-}
-
 // Global settings for queues
 struct mq_attr _global_queue_attrs = {
     .mq_maxmsg = 10,
@@ -137,20 +118,20 @@ int cleanup_shared_loading_zone() {
     errno = 0;
     int fd = shm_open(LOADING_ZONE_SHM_NAME, O_RDWR, 0);
     if(fd < 0) {
-        printf("Error opening shared loading zone for cleanup - might require manual action: %s\n", errno);
+        printf("Error opening shared loading zone for cleanup - might require manual action: %s\n", strerror(errno));
         return -1;
     }
 
     errno = 0;
     shared_loading_zone_t* zone = mmap(NULL, sizeof(*zone), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(zone == MAP_FAILED) {
-        printf("Error mmaping shared loading zone for cleanup - might require manual action: %s\n", errno);
+        printf("Error mmaping shared loading zone for cleanup - might require manual action: %s\n", strerror(errno));
         return -1;
     }
 
     errno = 0;
     if(close(zone->read_fd) < 0 || close(zone->write_fd) < 0) {
-        printf("Error while cleaning up shared memory (pipe): %s\n", errno);
+        printf("Error while cleaning up shared memory (pipe): %s\n", strerror(errno));
         return -1;
     }
 
@@ -161,13 +142,13 @@ int cleanup_shared_loading_zone() {
 
     errno = 0;
     if(close(fd) < 0) {
-        printf("Error while cleaning up shared memory (shm): %s\n", errno);
+        printf("Error while cleaning up shared memory (shm): %s\n", strerror(errno));
         return -1;
     }
 
     errno = 0;
     if(shm_unlink(LOADING_ZONE_SHM_NAME) < 0) {
-        printf("Error unlinking shared memory segment - manual action may be required: %s\n");
+        printf("Error unlinking shared memory segment - manual action may be required: %s\n", strerror(errno));
         return -1;
     }
 

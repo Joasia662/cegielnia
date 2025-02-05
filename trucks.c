@@ -62,7 +62,7 @@ int main() {
     if(res != 0) {
         printf("Trucks error: installing SIGUSR1 handler: %s\n", strerror(errno));
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     };
 
@@ -77,43 +77,45 @@ int main() {
     if(nbytes < 0) {
         printf("Trucks error receiving message: %s\n", strerror(errno));
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     }
 
     if(nbytes < sizeof(msg_recv_buf)) {
         printf("Trucks error receiving message: partial read\n", strerror(errno));
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     }
 
     if(msg_recv_buf.type != MSG_TYPE_SIGNAL_TRUCKS_START) {
         printf("Trucks unexpected message: expected SIGNAL_TRUCKS_START (%d) received: %d\n", MSG_TYPE_SIGNAL_TRUCKS_START, msg_recv_buf.type);
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     }
 
     if(msg_recv_buf.status == MSG_DENY) {
         printf("Trucks received SIGNAL_TRUCKS_START status set to DENY, aborting\n");
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     } else if(msg_recv_buf.status != MSG_APPROVE) {
         printf("Trucks received SIGNAL_TRUCKS_START set to invalid status, aborting\n");
         close_queues(input_queue, conveyor_input_queue);
-        cleanup_shared_loading_zone();
+        munmap_and_close_shm(shm_fd, zone);
         exit(1);
     }
 
-    int number_of_truck_threads = msg_recv_buf.data;
-    printf("Trucks received SIGNAL_TRUCKS_START set to APPROVE, and was given %d threads to spawn, starting work!\n", number_of_truck_threads);
+    int number_of_truck_threads = msg_recv_buf.data[0];
+    int sleep_time_in_seconds = msg_recv_buf.data[1];
+    int truck_capacity = msg_recv_buf.data[2];
+    printf("Trucks received SIGNAL_TRUCKS_START set to APPROVE, and was given %d threads to spawn, with max cap %d and sleep time %ds, starting work!\n", number_of_truck_threads, truck_capacity, sleep_time_in_seconds);
 
-    
+    sleep(10);
 
     close_queues(input_queue, conveyor_input_queue);
-    cleanup_shared_loading_zone();
+    munmap_and_close_shm(shm_fd, zone);
 }
 
 int open_queues(mqd_t* input_queue, mqd_t* conveyor_input_queue) {

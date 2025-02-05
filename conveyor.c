@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
         }
 
         if(msg_recv_buf.type == MSG_TYPE_END_OF_WORK) {
-            int worker_id = msg_recv_buf.data;
+            int worker_id = msg_recv_buf.data[0];
             workers_finished[worker_id - 1] = 1;
             printf("Conveyor received end of work from worker id %d - current status: [ %d, %d, %d ]\n", worker_id, workers_finished[0], workers_finished[1], workers_finished[2]);
             continue;
@@ -100,17 +100,17 @@ int main(int argc, char** argv) {
             exit(1);
         }
 
-        int new_brick_weight = msg_recv_buf.data;
+        int new_brick_weight = msg_recv_buf.data[0];
 
         msg_send_buf.type = MSG_TYPE_NEW_BRICK_RESP;
     
         if(can_fit_brick(zone->current_count, zone->max_count, zone->current_mass, zone->max_mass, new_brick_weight)) {
-            msg_send_buf.data = MSG_APPROVE;
+            msg_send_buf.status = MSG_APPROVE;
             (zone->current_count)++;
             zone->current_mass += new_brick_weight;
             printf("Conveyor received brick of mass %d and it can fit!\n", new_brick_weight);
         } else {
-            msg_send_buf.data = MSG_DENY;
+            msg_send_buf.status = MSG_DENY;
             printf("Conveyor received brick of mass %d but it does not fit!\n", new_brick_weight);
         }
 

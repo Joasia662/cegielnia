@@ -31,6 +31,9 @@ int main() {
     // PID of conveyor process
     pid_t conveyor;
 
+    // PID of trucks process
+    pid_t trucks;
+
     // Message queues used to communicate responses to workers
     mqd_t worker_response_queues[NUM_WORKERS];
 
@@ -63,6 +66,9 @@ int main() {
         exit(1);
     }
 
+    conveyor = tmp;
+    printf("Spawned child conveyor with pid %ld\n", conveyor);
+
     // Spawn trucks process
     char* argv_trucks[] = {"./trucks", NULL};
     tmp = spawn_child("./trucks", argv_trucks);
@@ -73,8 +79,8 @@ int main() {
         exit(1);
     }
 
-    conveyor = tmp;
-    printf("Spawned child conveyor with pid %ld\n", conveyor);
+    trucks = tmp;
+    printf("Spawned child trucks with pid %ld\n", trucks);
 
     // Spawn worker processes
     for(int i = 0; i < NUM_WORKERS; i++) {
@@ -88,6 +94,12 @@ int main() {
             res = kill(conveyor, SIGTERM);
             if(res < 0) {
                 printf("Error while trying to kill child with pid %d - manual intervention may be required: %s\n", conveyor, strerror(errno));
+            }
+
+            errno = 0;
+            res = kill(trucks, SIGTERM);
+            if(res < 0) {
+                printf("Error while trying to kill child with pid %d - manual intervention may be required: %s\n", trucks, strerror(errno));
             }
 
             for(int j = 0; j < i; j++) {
@@ -118,7 +130,7 @@ int main() {
 
     for(int i = 0; i < NUM_WORKERS; i++) {
         errno = 0;
-        msg.data = i + 1;
+        msg.data[0] = i + 1;
         res = mq_send(worker_response_queues[i], (char*) &msg, sizeof(msg), 0);
         if(res < 0) {
             printf("Control error sending message: %s\n", strerror(errno));
@@ -129,8 +141,18 @@ int main() {
     }
 
     // Send TRUCKS_START to trucks
-    msg.type = MSG_TYPE_SIGNAL_WORKER_START;
-    msg.data = 8;
+    msg.type = MSG_TYPE_SIGNAL_TRUCKS_START;
+    msg.data[0] = 8;
+    msg.data[1] = 5;
+    msg.data[2] = 200;
+
+    res = mq_send(trucks_response_queue, (char*) &msg, sizeof(msg), 0);
+    if(res < 0) {
+        printf("Control error sending message: %s\n", strerror(errno));
+        cleanup_queues();
+        cleanup_shared_loading_zone();
+        exit(1);
+    }
 
     // Now wait for the workers to finish
     for(int i = 0; i < NUM_WORKERS; i++) {
@@ -143,6 +165,11 @@ int main() {
     // And the conveyor
     if(waitpid(conveyor, NULL, 0) < 0) {
         printf("Error while waiting for conveyor with pid %d: %s\n", conveyor, strerror(errno));
+    }
+
+    // And the trucks
+    if(waitpid(trucks, NULL, 0) < 0) {
+        printf("Error while waiting for trucks with pid %d: %s\n", trucks, strerror(errno));
     }
 
     cleanup_queues();

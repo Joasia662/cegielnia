@@ -22,10 +22,6 @@ char* common_get_worker_response_queue_name(int id);
 
 #define QUEUE_PERM 0600
 
-// Converts decimal string to integer, stores it in variable pointed to by result
-// Returns -1 in case of errors
-int common_str_to_int(char* str, long* result);
-
 // Returns a static instance of mq_attr to be used with queues in simulation
 struct mq_attr* get_mq_attrs();
 

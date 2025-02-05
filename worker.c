@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
     
-    int worker_id = msg_recv_buf.data;
+    int worker_id = msg_recv_buf.data[0];
     printf("Worker PID %d received SIGNAL_START set to APPROVE, and was assigned worker ID %d, starting work!\n", getpid(), worker_id);
 
     // worker will produce bricks until he is signaled to stop, by setting the flag up
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         simulate_work(); // Work on the brick for a moment
 
         msg_send_buf.type = MSG_TYPE_NEW_BRICK;
-        msg_send_buf.data = (uint8_t) worker_id;
+        msg_send_buf.data[0] = (uint8_t) worker_id;
 
         // Do while loop of inserting the brick
         do {
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
             }
 
             sleep(1);
-        } while(msg_recv_buf.data != MSG_APPROVE); // Keep reminding conveyor about the new bricks, until it accepts it, but wait a second before each attempt
+        } while(msg_recv_buf.status != MSG_APPROVE); // Keep reminding conveyor about the new bricks, until it accepts it, but wait a second before each attempt
 
         printf("Worker id %ld succesfully inserted brick into conveyor\n", worker_id);
     };
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     // After we finish work, tell conveyor about it
 
     msg_send_buf.type = MSG_TYPE_END_OF_WORK;
-    msg_send_buf.data = (uint8_t) worker_id;
+    msg_send_buf.data[0] = (uint8_t) worker_id;
 
     errno = 0;
     res = mq_send(conveyor_input_queue, (char*) &msg_send_buf, sizeof(msg_send_buf), 0);
