@@ -1,3 +1,4 @@
-#!/bin/bash
-
-gcc -Wall -Wextra -Werror -pedantic -Wno-error=unused-parameter -pthread conveyor.c main.c worker.c truck.c sim.c -o cegielnia
+gcc conveyor.c common.c -o conveyor
+gcc cegielnia.c common.c -o cegielnia
+gcc worker.c common.c -o worker
+gcc trucks.c common.c -o trucks
