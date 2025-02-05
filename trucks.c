@@ -243,8 +243,10 @@ int main() {// Open semaphore used to signal end of loading
         printf("Truck error: cannot redirect output back to stdout: %s\n",  strerror(errno));
         exit(1);
     }
-
+    close(file);
+    close(file2);
     close(defout);
+    
     close_queues(input_queue, conveyor_input_queue);
     munmap_and_close_shm(shm_fd, zone);
         

@@ -64,22 +64,22 @@ int main(int argc, char** argv) {
     };
 
 
-    int defout = dup(1);
-    if(defout <0){
-        printf("Worker error: can't dump(2): %s\n",  strerror(errno));
-        exit(1);
-    }
+    //int defout = dup(1);
+    //if(defout <0){
+    //    printf("Worker error: can't dump(2): %s\n",  strerror(errno));
+    //    exit(1);
+    //}
 
-    int file = open( "worker_log.txt", O_WRONLY | O_CREAT, 0600);
-    if(file ==-1){
-        printf("Worker error: creating log files failed: %s\n",  strerror(errno));
-        exit(1);
-    }
-    int file2 = dup2(file,STDOUT_FILENO);
-        if(file2 ==-1){
-        printf("Worker error: duplicate a file desriptor failed: %s\n",  strerror(errno));
-        exit(1);
-    }    
+    //int file = open( "worker_log.txt", O_WRONLY | O_CREAT, 0600);
+    //if(file ==-1){
+    //    printf("Worker error: creating log files failed: %s\n",  strerror(errno));
+    //    exit(1);
+    //}
+    //int file2 = dup2(file,STDOUT_FILENO);
+    //    if(file2 ==-1){
+    //    printf("Worker error: duplicate a file desriptor failed: %s\n",  strerror(errno));
+    //    exit(1);
+    //}    
 
     printf("Worker PID %d reporting ready for work! Waiting for signal...\n", getpid());
 
@@ -173,14 +173,14 @@ int main(int argc, char** argv) {
         printf("Worker id %ld succesfully inserted brick into conveyor\n", worker_id);
     };
 
-    printf("Worker id %ld finished work!\n", worker_id);
-    fflush(stdout);
-    if(dup2(defout,1)<0){
-        printf("Worker error: cannot redirect output back to stdout: %s\n",  strerror(errno));
-        exit(1);
-    }
+    //printf("Worker id %ld finished work!\n", worker_id);
+    //fflush(stdout);
+    //if(dup2(defout,1)<0){
+    //    printf("Worker error: cannot redirect output back to stdout: %s\n",  strerror(errno));
+    //   exit(1);
+    //}
 
-    close(defout);
+    //close(defout);
     // After we finish work, tell conveyor about it
 
     msg_send_buf.type = MSG_TYPE_END_OF_WORK;
