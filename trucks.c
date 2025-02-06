@@ -14,6 +14,17 @@
 #include "common.h"
 #include "messages.h"
 
+sem_t* zone_sem;
+shared_loading_zone_t* zone;
+int shm_fd;
+
+// Queue on which messages for the trucks process appear
+mqd_t input_queue;
+
+// Queue used to send requests to the conveyor
+mqd_t conveyor_input_queue;
+
+
 // Flag set by signal SIGUSR1 - stops loading and tells the truck to leave early
 int truck_leave_early_flag = 0;
 
@@ -33,6 +44,16 @@ int open_queues(mqd_t* input_queue, mqd_t* conveyor_input_queue);
 
 // This function closes all queues
 void close_queues(mqd_t input_queue, mqd_t conveyor_input_queue);
+
+void perform_cleanup_and_exit(int a) {
+    close_queues(input_queue, conveyor_input_queue);
+    munmap_and_close_shm(shm_fd, zone);
+    errno = 0;
+    if(sem_close(zone_sem) < 0) {
+        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+    }
+    exit(0);
+}
 
 // structure which contains all data necessary for the threads
 struct truck_thread_arg_t {
@@ -57,15 +78,15 @@ int main() {// Open semaphore used to signal end of loading
     int res = 0;
 
     errno = 0;
-    sem_t* zone_sem = sem_open(LOADING_ZONE_SEM_NAME, O_RDWR);
+    zone_sem = sem_open(LOADING_ZONE_SEM_NAME, O_RDWR);
     if(zone_sem == SEM_FAILED) {
         printf("Conveyor error while opening a semaphore: %s\n", strerror(errno));
         exit(1);
     }
 
     // Open shared memory segment
-    shared_loading_zone_t* zone = NULL;
-    int shm_fd = 0;
+    zone = NULL;
+    shm_fd = 0;
     if(open_and_map_shm(&shm_fd, &zone) < 0) {
         puts("Conveyor error while opening shared loading zone");
 
@@ -79,12 +100,6 @@ int main() {// Open semaphore used to signal end of loading
     printf("Trucks mapped the shared loading zone into it's address space at address %p\nValues inside are: Max count = %d, Max mass = %d, Read FD: %d, Write FD: %d\n",
         (void*) zone, zone->max_count, zone->max_mass, zone->read_fd, zone->write_fd);
 
-    // Queue on which messages for the trucks process appear
-    mqd_t input_queue;
-
-    // Queue used to send requests to the conveyor
-    mqd_t conveyor_input_queue;
-
     res = open_queues(&input_queue, &conveyor_input_queue);
     if(res < 0) {
         printf("Trucks encountered error while opening queues, exiting");
@@ -97,18 +112,14 @@ int main() {// Open semaphore used to signal end of loading
         exit(1);
     }
 
+
+
     errno = 0;
     res = sigaction(SIGUSR1, &usr1_sigaction, NULL);
     if(res != 0) {
         printf("Trucks error: installing SIGUSR1 handler: %s\n", strerror(errno));
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        perform_cleanup_and_exit(0);
     };
 
     int defout = dup(1);
@@ -139,59 +150,34 @@ int main() {// Open semaphore used to signal end of loading
     if(nbytes < 0) {
         printf("Trucks error receiving message: %s\n", strerror(errno));
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        
+        perform_cleanup_and_exit(0);
     }
 
     if(nbytes < sizeof(msg_recv_buf)) {
         fprintf(stderr,"Trucks error receiving message: partial read\n", strerror(errno));
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        
+        perform_cleanup_and_exit(0);
     }
 
     if(msg_recv_buf.type != MSG_TYPE_SIGNAL_TRUCKS_START) {
         printf("Trucks unexpected message: expected SIGNAL_TRUCKS_START (%d) received: %d\n", MSG_TYPE_SIGNAL_TRUCKS_START, msg_recv_buf.type);
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        
+        perform_cleanup_and_exit(0);
     }
 
     if(msg_recv_buf.status == MSG_DENY) {
         printf("Trucks received SIGNAL_TRUCKS_START status set to DENY, aborting\n");
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        
+        perform_cleanup_and_exit(0);
     } else if(msg_recv_buf.status != MSG_APPROVE) {
         printf("Trucks received SIGNAL_TRUCKS_START set to invalid status, aborting\n");
         
-        errno = 0;
-        if(sem_close(zone_sem) < 0) {
-            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-        }
-        close_queues(input_queue, conveyor_input_queue);
-        munmap_and_close_shm(shm_fd, zone);
-        exit(1);
+        
+        perform_cleanup_and_exit(0);
     }
 
     int number_of_truck_threads = msg_recv_buf.data[0];
@@ -225,9 +211,7 @@ int main() {// Open semaphore used to signal end of loading
                 pthread_kill(truck_threads[j], SIGTERM);
             };
 
-            close_queues(input_queue, conveyor_input_queue);
-            munmap_and_close_shm(shm_fd, zone);
-            exit(1);
+            perform_cleanup_and_exit(0);
         }
     }
 
@@ -247,13 +231,7 @@ int main() {// Open semaphore used to signal end of loading
     close(file2);
     close(defout);
     
-    close_queues(input_queue, conveyor_input_queue);
-    munmap_and_close_shm(shm_fd, zone);
-        
-    errno = 0;
-    if(sem_close(zone_sem) < 0) {
-        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-    }
+    perform_cleanup_and_exit(0);
 }
 
 int open_queues(mqd_t* input_queue, mqd_t* conveyor_input_queue) {

@@ -14,28 +14,35 @@
 #include "messages.h"
 #include "sim.h"
 
-// This functions creates all necessary queues for IPC
-// returns -1 in case of error
-int create_queues(mqd_t* conveyor_input_queue, mqd_t* trucks_response_queue, mqd_t* worker_response_queues);
+// Array of Process IDs of workers
+pid_t workers[NUM_WORKERS];
 
-// This unlinks all the queues
-// reports errors to stdout, but there is no way to handle errors anyways, so returns void
-void cleanup_queues();
+// PID of conveyor process
+pid_t conveyor;
 
-// Spawn a child process with specified arguments
-// Returns -1 in case of error, PID of child in case of success
-pid_t spawn_child(char* executable_file, char** argv);
+// PID of trucks process
+pid_t trucks;
+
+// Simulation parameters
+sim_params_t params = { 0 };
+
+// Signal handler for various signals that cause our process to terminate
+void perform_cleanup_and_exit(int a) {
+    cleanup_queues();
+    cleanup_shared_loading_zone();
+    sem_unlink(LOADING_ZONE_SEM_NAME);
+
+    for(int i = 0; i < NUM_WORKERS; i++) {
+        kill(workers[i], SIGINT);
+    }
+
+    kill(trucks, SIGINT);
+    kill(conveyor, SIGINT);
+
+    exit(1);
+}
 
 int main() {
-    // Array of Process IDs of workers
-    pid_t workers[NUM_WORKERS];
-
-    // PID of conveyor process
-    pid_t conveyor;
-
-    // PID of trucks process
-    pid_t trucks;
-
     // Message queues used to communicate responses to workers
     mqd_t worker_response_queues[NUM_WORKERS];
 
@@ -46,9 +53,7 @@ int main() {
     mqd_t trucks_response_queue;
 
     //get param from the user
-    sim_params_t params = { 0 };
     sim_query_user_for_params(&params);
-
 
     int res = create_queues(&conveyor_input_queue, &trucks_response_queue, worker_response_queues);
     if(res < 0) {
@@ -143,8 +148,16 @@ int main() {
         printf("Spawned child worker with pid %ld\n", workers[i]);
     }
 
+    puts("Installing cleanup signal handlers");
+    res = install_cleanup_handler(&perform_cleanup_and_exit);
+    if(res < 0) {
+        puts("Error assigning cleanup handler to signals, exiting");
+    
+        perform_cleanup_and_exit(0);
+    };
+
     sleep(3);
-    puts("Succesfully spwaned all processes - sending start signal");
+    puts("Succesfully spawned all processes - sending start signal");
 
     // Send WORKER_START to workers
     message_t msg = {
@@ -158,10 +171,7 @@ int main() {
         res = mq_send(worker_response_queues[i], (char*) &msg, sizeof(msg), 0);
         if(res < 0) {
             printf("Control error sending message: %s\n", strerror(errno));
-            cleanup_queues();
-            cleanup_shared_loading_zone();
-            sem_unlink(LOADING_ZONE_SEM_NAME);
-            exit(1);
+            perform_cleanup_and_exit(0);
         }
     }
 
@@ -174,10 +184,7 @@ int main() {
     res = mq_send(trucks_response_queue, (char*) &msg, sizeof(msg), 0);
     if(res < 0) {
         printf("Control error sending message: %s\n", strerror(errno));
-        cleanup_queues();
-        cleanup_shared_loading_zone();
-        sem_unlink(LOADING_ZONE_SEM_NAME);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
 
     // Now wait for the workers to finish
@@ -198,127 +205,6 @@ int main() {
         printf("Error while waiting for trucks with pid %d: %s\n", trucks, strerror(errno));
     }
 
-    cleanup_queues();
-    cleanup_shared_loading_zone();
-    sem_unlink(LOADING_ZONE_SEM_NAME);
+    perform_cleanup_and_exit(0);
 }
 
-pid_t spawn_child(char* executable_file, char** argv) {
-    errno = 0;
-    pid_t res = fork();
-    if(res < 0) {
-        printf("Error spawning a child \"%s\": %s\n", executable_file, strerror(errno));
-        return -1;
-    }
-
-    // In parent, returns PID of child
-    if(res != 0) {
-        return res;
-    }
-
-    // In child, returns 0, execute the binary
-    errno = 0;
-    if(execve(executable_file, argv, NULL) < 0) {
-        printf("Child succesfully spawned, but execve returned error: %s\n", strerror(errno));
-        exit(1);
-    };
-}
-
-int create_queues(mqd_t* conveyor_input_queue, mqd_t* trucks_response_queue, mqd_t* worker_response_queues) {
-    mqd_t tmp;
-    int res = 0;
-    errno = 0;
-    tmp = mq_open(CONVEYOR_INPUT_QUEUE_NAME, O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
-    if(tmp < 0) {
-        printf("Error while creating conveyor input queue: %s\n", strerror(errno));
-        return -1;
-    };
-
-    *conveyor_input_queue = tmp;
-
-    errno = 0;
-    tmp = mq_open(TRUCKS_RESPONSE_QUEUE_NAME, O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
-    if(tmp < 0) {
-        printf("Error while creating trucks response queue: %s\n", strerror(errno));
-        res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
-
-        if(res < 0) {
-            printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
-        }
-        return -1;
-    };
-
-    *trucks_response_queue = tmp;
-
-    printf("Succesfully created conveyor input queue \"%s\"\n", CONVEYOR_INPUT_QUEUE_NAME);
-
-    for(int i = 0; i < NUM_WORKERS; i++) {
-        errno = 0;
-        tmp = mq_open(common_get_worker_response_queue_name(i + 1), O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
-
-        // check for errors
-        if(tmp < 0) {
-            printf("Error while creating worker queue with name \"%s\": %s\n", common_get_worker_response_queue_name(i + 1), strerror(errno));
-            int res = 0;
-
-            // If one queue fails, we need to unlink previously created queues
-            for(int j = 0; j < i; j++) {
-                errno = 0;
-                res = mq_unlink(common_get_worker_response_queue_name(j + 1));
-                if(res < 0) {
-                    printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", common_get_worker_response_queue_name(j + 1), strerror(errno));
-                }
-            }
-
-            // Also unlink the one created previously for the conveyor and trucks
-            res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
-            if(res < 0) {
-                printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
-            }
-
-            res = mq_unlink(TRUCKS_RESPONSE_QUEUE_NAME);
-            if(res < 0) {
-                printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", TRUCKS_RESPONSE_QUEUE_NAME, strerror(errno));
-            }
-
-            // Finally return -1 to report error to the cllign function
-            return -1;
-        }
-
-        // If succesful, store the queue id in the pointer var
-        worker_response_queues[i] = tmp;
-
-        printf("Succesfully created conveyor input queue \"%s\"\n", common_get_worker_response_queue_name(i + 1));
-    }
-
-    return 0;
-}
-
-
-void cleanup_queues() {
-    errno = 0;
-    int res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
-    if(res < 0) {
-        printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
-    } else {
-        printf("Succesfully unlinked conveyor input queue \"%s\"\n", CONVEYOR_INPUT_QUEUE_NAME);
-    }
-
-    errno = 0;
-    res = mq_unlink(TRUCKS_RESPONSE_QUEUE_NAME);
-    if(res < 0) {
-        printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", TRUCKS_RESPONSE_QUEUE_NAME, strerror(errno));
-    } else {
-        printf("Succesfully unlinked conveyor input queue \"%s\"\n", TRUCKS_RESPONSE_QUEUE_NAME);
-    }
-
-    for(int j = 0; j < NUM_WORKERS; j++) {
-        errno = 0;
-        res = mq_unlink(common_get_worker_response_queue_name(j + 1));
-        if(res < 0) {
-            printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", common_get_worker_response_queue_name(j + 1), strerror(errno));
-        } else {
-            printf("Succesfully unlinked conveyor input queue \"%s\"\n", common_get_worker_response_queue_name(j + 1));
-        }
-    }
-}

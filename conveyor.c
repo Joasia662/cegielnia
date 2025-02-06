@@ -15,6 +15,19 @@
 #include "common.h"
 #include "messages.h"
 
+sem_t* zone_sem;
+shared_loading_zone_t* zone;
+int shm_fd;
+
+// Queues for responses to workers
+mqd_t worker_response_queues[NUM_WORKERS];
+
+// Queue for brick input
+mqd_t input_queue;
+
+// Queue for communicating with trucks
+mqd_t trucks_response_queue;
+
 // This functions opens all necessary queues for IPC
 // returns -1 in case of error
 int open_queues(mqd_t* conveyor_input_queue, mqd_t* trucks_response_queue, mqd_t* worker_response_queues);
@@ -28,20 +41,31 @@ int all_workers_finished(int* finished_workers);
 // Checks if conveyor can fit the new brick
 int can_fit_brick(int current_count, int max_count, int current_mass, int max_mass, int brick_mass);
 
+// Signal handler for various signals that cause our process to terminate
+void perform_cleanup_and_exit(int a) {
+    close_queues(input_queue, trucks_response_queue, worker_response_queues);
+    munmap_and_close_shm(shm_fd, zone);
+    if(sem_close(zone_sem) < 0) {
+        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+    }
+
+    exit(0);
+}
+
 // Conveyor does not need any arguments, only needs to open the shared objects
 int main(int argc, char** argv) {
     int res = 0; // result variable for checking errors in library operations
 
     // Open semaphore used to signal end of loading
     errno = 0;
-    sem_t* zone_sem = sem_open(LOADING_ZONE_SEM_NAME, O_RDWR);
+    zone_sem = sem_open(LOADING_ZONE_SEM_NAME, O_RDWR);
     if(zone_sem == SEM_FAILED) {
         printf("Conveyor error while opening a semaphore: %s\n", strerror(errno));
         exit(1);
     }
 
-    shared_loading_zone_t* zone = NULL;
-    int shm_fd = 0;
+    zone = NULL;
+    shm_fd = 0;
     if(open_and_map_shm(&shm_fd, &zone) < 0) {
         puts("Conveyor error while opening shared loading zone");
         
@@ -55,16 +79,6 @@ int main(int argc, char** argv) {
     printf("Conveyor mapped the shared loading zone into it's address space at address %p\nValues inside are: Max count = %d, Max mass = %d, Read FD: %d, Write FD: %d\n",
         (void*) zone, zone->max_count, zone->max_mass, zone->read_fd, zone->write_fd);
 
-
-    // Queues for responses to workers
-    mqd_t worker_response_queues[NUM_WORKERS];
-
-    // Queue for brick input
-    mqd_t input_queue;
-
-    // Queue for communicating with trucks
-    mqd_t trucks_response_queue;
-
     res = open_queues(&input_queue, &trucks_response_queue, worker_response_queues);
     if(res < 0) {
         puts("Conveyor error while opening queues, exiting");
@@ -76,6 +90,13 @@ int main(int argc, char** argv) {
         }
         exit(1);
     }
+
+    res = install_cleanup_handler(&perform_cleanup_and_exit);
+    if(res < 0) {
+        puts("Error assigning cleanup handler to signals, exiting");
+    
+        perform_cleanup_and_exit(0);
+    };
 
     puts("Conveyor ready for work!");
 
@@ -90,33 +111,18 @@ int main(int argc, char** argv) {
 
     // Perform while loop until all workers finished and the conveyor is empty
     while(!(all_workers_finished(workers_finished) && zone->current_count == 0)) {
-        printf("Conveyor waiting for input. Mass: %ld/%ld Count: %ld/%ld\n", zone->current_count, zone->max_count, zone->current_mass, zone->max_mass);
+        printf("Conveyor waiting for input. Count: %ld/%ld Mass: %ld/%ld\n", zone->current_count, zone->max_count, zone->current_mass, zone->max_mass);
 
         errno = 0; // Attempt to receive a message
         nbytes = mq_receive(input_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL);
         if(nbytes < 0) {
             printf("Conveyor error receiving message: %s\n", strerror(errno));
-            close_queues(input_queue, trucks_response_queue, worker_response_queues);
-            munmap_and_close_shm(shm_fd, zone);
-    
-            errno = 0;
-            if(sem_close(zone_sem) < 0) {
-                printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-            }
-
-            exit(1);
+            perform_cleanup_and_exit(0);
         }
 
         if(nbytes < sizeof(msg_recv_buf)) {
             puts("Conveyor error receiving message: partial read");
-            close_queues(input_queue, trucks_response_queue, worker_response_queues);
-            munmap_and_close_shm(shm_fd, zone);
-            
-            errno = 0;
-            if(sem_close(zone_sem) < 0) {
-                printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-            }
-            exit(1);
+            perform_cleanup_and_exit(0);
         }
 
         // Possible message: end of work from worker
@@ -166,14 +172,7 @@ int main(int argc, char** argv) {
             res = mq_send(worker_response_queues[new_brick_weight - 1], (char*) &msg_send_buf, sizeof(msg_send_buf), 0);
             if(res < 0) {
                 printf("Conveyor error sending message: %s\n", strerror(errno));
-                close_queues(input_queue, trucks_response_queue, worker_response_queues);
-                munmap_and_close_shm(shm_fd, zone);
-
-                errno = 0;
-                if(sem_close(zone_sem) < 0) {
-                    printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-                }
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             continue;
@@ -195,14 +194,7 @@ int main(int argc, char** argv) {
             res = mq_send(trucks_response_queue, (char*) &msg_send_buf, sizeof(msg_send_buf), 0);
             if(res < 0) {
                 printf("Conveyor error sending message: %s\n", strerror(errno));
-                close_queues(input_queue, trucks_response_queue, worker_response_queues);
-                munmap_and_close_shm(shm_fd, zone);
-                
-                errno = 0;
-                if(sem_close(zone_sem) < 0) {
-                    printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-                }
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             // If we sent approval, then wait on the smeaphore before continuing
@@ -213,13 +205,7 @@ int main(int argc, char** argv) {
                 res = sem_wait(zone_sem);
                 if(res < 0) {
                     printf("Conveyor error while waiting on the semaphore: %s\n", strerror(errno));
-                    close_queues(input_queue, trucks_response_queue, worker_response_queues);
-                    munmap_and_close_shm(shm_fd, zone);
-
-                    errno = 0;
-                    if(sem_close(zone_sem) < 0) {
-                        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-                    }
+                    perform_cleanup_and_exit(0);
                 }
             }
 
@@ -229,13 +215,7 @@ int main(int argc, char** argv) {
 
     puts("All workers finished, conveyor leaving");
 
-    close_queues(input_queue, trucks_response_queue, worker_response_queues);
-    munmap_and_close_shm(shm_fd, zone);
-
-    errno = 0;
-    if(sem_close(zone_sem) < 0) {
-        printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
-    }
+    perform_cleanup_and_exit(0);
 }
 
 int can_fit_brick(int current_count, int max_count, int current_mass, int max_mass, int brick_mass) {

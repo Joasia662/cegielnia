@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "messages.h"
 
@@ -195,4 +196,164 @@ void munmap_and_close_shm(int shm_fd, shared_loading_zone_t* zone) {
     if(close(shm_fd) < 0) {
         printf("Conveyor error while closing shared loading zone shm fd: %s\n", strerror(errno));
     }
+}
+
+pid_t spawn_child(char* executable_file, char** argv) {
+    errno = 0;
+    pid_t res = fork();
+    if(res < 0) {
+        printf("Error spawning a child \"%s\": %s\n", executable_file, strerror(errno));
+        return -1;
+    }
+
+    // In parent, returns PID of child
+    if(res != 0) {
+        return res;
+    }
+
+    // In child, returns 0, execute the binary
+    errno = 0;
+    if(execve(executable_file, argv, NULL) < 0) {
+        printf("Child succesfully spawned, but execve returned error: %s\n", strerror(errno));
+        exit(1);
+    };
+    
+}
+
+int create_queues(mqd_t* conveyor_input_queue, mqd_t* trucks_response_queue, mqd_t* worker_response_queues) {
+    mqd_t tmp;
+    int res = 0;
+    errno = 0;
+    tmp = mq_open(CONVEYOR_INPUT_QUEUE_NAME, O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
+    if(tmp < 0) {
+        printf("Error while creating conveyor input queue: %s\n", strerror(errno));
+        return -1;
+    };
+
+    *conveyor_input_queue = tmp;
+
+    errno = 0;
+    tmp = mq_open(TRUCKS_RESPONSE_QUEUE_NAME, O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
+    if(tmp < 0) {
+        printf("Error while creating trucks response queue: %s\n", strerror(errno));
+        res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
+
+        if(res < 0) {
+            printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
+        }
+        return -1;
+    };
+
+    *trucks_response_queue = tmp;
+
+    printf("Succesfully created conveyor input queue \"%s\"\n", CONVEYOR_INPUT_QUEUE_NAME);
+
+    for(int i = 0; i < NUM_WORKERS; i++) {
+        errno = 0;
+        tmp = mq_open(common_get_worker_response_queue_name(i + 1), O_CREAT | O_WRONLY | O_EXCL, QUEUE_PERM, get_mq_attrs());
+
+        // check for errors
+        if(tmp < 0) {
+            printf("Error while creating worker queue with name \"%s\": %s\n", common_get_worker_response_queue_name(i + 1), strerror(errno));
+            int res = 0;
+
+            // If one queue fails, we need to unlink previously created queues
+            for(int j = 0; j < i; j++) {
+                errno = 0;
+                res = mq_unlink(common_get_worker_response_queue_name(j + 1));
+                if(res < 0) {
+                    printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", common_get_worker_response_queue_name(j + 1), strerror(errno));
+                }
+            }
+
+            // Also unlink the one created previously for the conveyor and trucks
+            res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
+            if(res < 0) {
+                printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
+            }
+
+            res = mq_unlink(TRUCKS_RESPONSE_QUEUE_NAME);
+            if(res < 0) {
+                printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", TRUCKS_RESPONSE_QUEUE_NAME, strerror(errno));
+            }
+
+            // Finally return -1 to report error to the cllign function
+            return -1;
+        }
+
+        // If succesful, store the queue id in the pointer var
+        worker_response_queues[i] = tmp;
+
+        printf("Succesfully created conveyor input queue \"%s\"\n", common_get_worker_response_queue_name(i + 1));
+    }
+
+    return 0;
+}
+
+
+void cleanup_queues() {
+    errno = 0;
+    int res = mq_unlink(CONVEYOR_INPUT_QUEUE_NAME);
+    if(res < 0) {
+        printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
+    } else {
+        printf("Succesfully unlinked conveyor input queue \"%s\"\n", CONVEYOR_INPUT_QUEUE_NAME);
+    }
+
+    errno = 0;
+    res = mq_unlink(TRUCKS_RESPONSE_QUEUE_NAME);
+    if(res < 0) {
+        printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", TRUCKS_RESPONSE_QUEUE_NAME, strerror(errno));
+    } else {
+        printf("Succesfully unlinked conveyor input queue \"%s\"\n", TRUCKS_RESPONSE_QUEUE_NAME);
+    }
+
+    for(int j = 0; j < NUM_WORKERS; j++) {
+        errno = 0;
+        res = mq_unlink(common_get_worker_response_queue_name(j + 1));
+        if(res < 0) {
+            printf("Error while unlinking queue with name \"%s\" - manual removal might be required: %s\n", common_get_worker_response_queue_name(j + 1), strerror(errno));
+        } else {
+            printf("Succesfully unlinked conveyor input queue \"%s\"\n", common_get_worker_response_queue_name(j + 1));
+        }
+    }
+}
+
+int install_cleanup_handler(void (handler)(int)) {
+    struct sigaction handler_struct = {
+        .sa_handler = handler
+    };
+
+    int res = 0;
+    res = sigaction(SIGHUP, &handler_struct, NULL);
+    if(res != 0) {
+        printf("Error: installing SIGHUP cleanup handler: %s\n", strerror(errno));
+        return -1;
+    }
+
+    res = sigaction(SIGINT, &handler_struct, NULL);
+    if(res != 0) {
+        printf("Error: installing SIGINT cleanup handler: %s\n", strerror(errno));
+        return -1;
+    }
+
+    res = sigaction(SIGQUIT, &handler_struct, NULL);
+    if(res != 0) {
+        printf("Error: installing SIGQUIT cleanup handler: %s\n", strerror(errno));
+        return -1;
+    }
+
+    res = sigaction(SIGTERM, &handler_struct, NULL);
+    if(res != 0) {
+        printf("Error: installing SIGTERM cleanup handler: %s\n", strerror(errno));
+        return -1;
+    }
+
+    res = sigaction(SIGTSTP, &handler_struct, NULL);
+    if(res != 0) {
+        printf("Error: installing SIGTSTP cleanup handler: %s\n", strerror(errno));
+        return -1;
+    }
+
+    return 0;
 }

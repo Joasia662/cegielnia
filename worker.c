@@ -13,6 +13,17 @@
 #include "common.h"
 #include "messages.h"
 
+// Queue IDs
+mqd_t response_queue;
+mqd_t conveyor_input_queue;
+
+// Signal handler for sigint etc
+void perform_cleanup_and_exit(int a) {
+    mq_close(response_queue);
+    mq_close(conveyor_input_queue);
+    exit(0);
+}
+
 // Flag set by signal SIGUSR2 - stops work and exits the process
 int worker_stop_flag = 0;
 
@@ -41,33 +52,35 @@ int main(int argc, char** argv) {
 
     int res = 0;
     errno = 0;
-    mqd_t response_queue = mq_open(queue_name, O_RDONLY);
+    response_queue = mq_open(queue_name, O_RDONLY);
     if(response_queue < 0) {
         printf("Worker PID %d error: cannot open queue \"%s\"\n: %s\n", getpid(), queue_name, strerror(errno));
         exit(1);
     }
 
     errno = 0;
-    mqd_t conveyor_input_queue = mq_open(CONVEYOR_INPUT_QUEUE_NAME, O_WRONLY);
+    conveyor_input_queue = mq_open(CONVEYOR_INPUT_QUEUE_NAME, O_WRONLY);
     if(conveyor_input_queue < 0) {
         printf("Worker PID %d error: cannot open queue \"%s\"\n: %s\n", getpid(), CONVEYOR_INPUT_QUEUE_NAME, strerror(errno));
         mq_close(response_queue);
         exit(1);
     }
 
+    res = install_cleanup_handler(&perform_cleanup_and_exit);
+    if(res < 0) {
+        printf("Worker PID %d error assigning cleanup handler to signals, exiting\n", getpid());
+    
+        perform_cleanup_and_exit(0);
+    };
+
     errno = 0;
     res = sigaction(SIGUSR2, &usr2_sigaction, NULL);
     if(res != 0) {
         printf("Worker PID %d error: installing SIGUSR2 handler: %s\n", getpid(), strerror(errno));
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     };
 
     printf("Worker PID %d reporting ready for work! Waiting for signal...\n", getpid());
-
-    
-
 
     // Buffer for receiving and sending messages
     message_t msg_recv_buf = { 0 };
@@ -77,35 +90,25 @@ int main(int argc, char** argv) {
     ssize_t nbytes = mq_receive(response_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL);
     if(nbytes < 0) {
         printf("Worker PID %d error receiving message: %s\n", getpid(), strerror(errno));
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
 
     if(nbytes < sizeof(msg_recv_buf)) {
         printf("Worker PID %d error receiving message: partial read\n", getpid());
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
 
     if(msg_recv_buf.type != MSG_TYPE_SIGNAL_WORKER_START) {
         printf("Worker PID %d unexpected message: expected SIGNAL_WORKER_START (%d) received: %d\n", getpid(), MSG_TYPE_SIGNAL_WORKER_START, msg_recv_buf.type);
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
 
     if(msg_recv_buf.status == MSG_DENY) {
         printf("Worker PID %d received SIGNAL_WORKER_START status set to DENY, aborting\n", getpid());
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     } else if(msg_recv_buf.status != MSG_APPROVE) {
         printf("Worker PID %d received SIGNAL_WORKER_START set to invalid status, aborting\n", getpid());
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
     
     int worker_id = msg_recv_buf.data[0];
@@ -128,7 +131,7 @@ int main(int argc, char** argv) {
     printf("[P%d] EVENT_WORKER_STARTED", worker_id);
     // worker will produce bricks until he is signaled to stop, by setting the flag up
     while(!worker_stop_flag) {
-        simulate_work(); // Work on the brick for a moment
+        //simulate_work(); // Work on the brick for a moment
 
         msg_send_buf.type = MSG_TYPE_NEW_BRICK;
         msg_send_buf.data[0] = (uint8_t) worker_id;
@@ -140,32 +143,24 @@ int main(int argc, char** argv) {
 
             if(res < 0) {
                 fprintf(stderr, "Worker ID %ld error sending message: %s\n", worker_id, strerror(errno));
-                mq_close(response_queue);
-                mq_close(conveyor_input_queue);
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             errno = 0; // receive acknolwedgement of the brick, and check if it is approval or deny
             nbytes = mq_receive(response_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL);
             if(nbytes < 0) {
                 fprintf(stderr,"Worker ID %ld error receiving message: %s\n", worker_id, strerror(errno));
-                mq_close(response_queue);
-                mq_close(conveyor_input_queue);
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             if(nbytes < sizeof(msg_recv_buf)) {
                 fprintf(stderr,"Worker ID %ld error receiving message: partial read\n", worker_id);
-                mq_close(response_queue);
-                mq_close(conveyor_input_queue);
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             if(msg_recv_buf.type != MSG_TYPE_NEW_BRICK_RESP) {
                 fprintf(stderr,"Worker ID %ld unexpected message: expected NEW_BRICK_RESP (%d), received %d\n", worker_id, MSG_TYPE_NEW_BRICK_RESP, msg_recv_buf.type);
-                mq_close(response_queue);
-                mq_close(conveyor_input_queue);
-                exit(1);
+                perform_cleanup_and_exit(0);
             }
 
             sleep(1);
@@ -192,11 +187,8 @@ int main(int argc, char** argv) {
     res = mq_send(conveyor_input_queue, (char*) &msg_send_buf, sizeof(msg_send_buf), 0);
     if(res < 0) {
         printf("Worker ID %ld error sending message: %s\n", worker_id, strerror(errno));
-        mq_close(response_queue);
-        mq_close(conveyor_input_queue);
-        exit(1);
+        perform_cleanup_and_exit(0);
     }
 
-    mq_close(response_queue);
-    mq_close(conveyor_input_queue);
+    perform_cleanup_and_exit(0);
 }

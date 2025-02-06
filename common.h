@@ -68,4 +68,20 @@ int open_and_map_shm(int* shm_fd, shared_loading_zone_t** zone);
 // If errors occur theres nothing we cna do, so just warn user
 void munmap_and_close_shm(int shm_fd, shared_loading_zone_t* zone);
 
+// Spawn a child process with specified arguments
+// Returns -1 in case of error, PID of child in case of success
+pid_t spawn_child(char* executable_file, char** argv);
+
+// This functions creates all necessary queues for IPC
+// returns -1 in case of error
+int create_queues(mqd_t* conveyor_input_queue, mqd_t* trucks_response_queue, mqd_t* worker_response_queues);
+
+// This unlinks all the queues
+// reports errors to stdout, but there is no way to handle errors anyways, so returns void
+void cleanup_queues();
+
+// Installs a single function as a handler for 4 types of signals according to this: https://stackoverflow.com/a/11620170/5457426
+// It is meant to clean up resources in a process
+int install_cleanup_handler(void (handler)(int));
+
 #endif
