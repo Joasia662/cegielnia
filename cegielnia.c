@@ -12,6 +12,7 @@
 
 #include "common.h"
 #include "messages.h"
+#include "sim.h"
 
 // This functions creates all necessary queues for IPC
 // returns -1 in case of error
@@ -44,13 +45,18 @@ int main() {
     // Message queue used to communicate responses to loading truck
     mqd_t trucks_response_queue;
 
+    //get param from the user
+    sim_params_t params = { 0 };
+    sim_query_user_for_params(&params);
+
+
     int res = create_queues(&conveyor_input_queue, &trucks_response_queue, worker_response_queues);
     if(res < 0) {
         puts("Error while creating queues, exiting");\
         exit(1);
     }
 
-    res = init_shared_loading_zone(300, 500);
+    res = init_shared_loading_zone(params.max_bricks_count, params.max_bricks_mass);
     if(res < 0) {
         puts("Error while initializing shared loading zone");
         cleanup_queues();
@@ -161,9 +167,9 @@ int main() {
 
     // Send TRUCKS_START to trucks
     msg.type = MSG_TYPE_SIGNAL_TRUCKS_START;
-    msg.data[0] = 8;
-    msg.data[1] = 5;
-    msg.data[2] = 200;
+    msg.data[0] = params.truck_count;
+    msg.data[1] = params.truck_sleep_time;
+    msg.data[2] = params.truck_capacity;
 
     res = mq_send(trucks_response_queue, (char*) &msg, sizeof(msg), 0);
     if(res < 0) {

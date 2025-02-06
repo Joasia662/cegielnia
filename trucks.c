@@ -141,7 +141,7 @@ int main() {// Open semaphore used to signal end of loading
         
         errno = 0;
         if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
         }
         close_queues(input_queue, conveyor_input_queue);
         munmap_and_close_shm(shm_fd, zone);
@@ -149,11 +149,11 @@ int main() {// Open semaphore used to signal end of loading
     }
 
     if(nbytes < sizeof(msg_recv_buf)) {
-        printf("Trucks error receiving message: partial read\n", strerror(errno));
+        fprintf(stderr,"Trucks error receiving message: partial read\n", strerror(errno));
         
         errno = 0;
         if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
         }
         close_queues(input_queue, conveyor_input_queue);
         munmap_and_close_shm(shm_fd, zone);
@@ -165,7 +165,7 @@ int main() {// Open semaphore used to signal end of loading
         
         errno = 0;
         if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
         }
         close_queues(input_queue, conveyor_input_queue);
         munmap_and_close_shm(shm_fd, zone);
@@ -177,7 +177,7 @@ int main() {// Open semaphore used to signal end of loading
         
         errno = 0;
         if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
         }
         close_queues(input_queue, conveyor_input_queue);
         munmap_and_close_shm(shm_fd, zone);
@@ -187,7 +187,7 @@ int main() {// Open semaphore used to signal end of loading
         
         errno = 0;
         if(sem_close(zone_sem) < 0) {
-            printf("Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
+            fprintf(stderr,"Error while closing semaphore - manual action might be required: %s\n", strerror(errno));
         }
         close_queues(input_queue, conveyor_input_queue);
         munmap_and_close_shm(shm_fd, zone);
@@ -219,7 +219,7 @@ int main() {// Open semaphore used to signal end of loading
     for(int i = 0; i < number_of_truck_threads; i++) {
         res = pthread_create(&(truck_threads[i]), NULL, &truck_thread_main, (void*) &thread_arg);
         if(res != 0) {
-            printf("Trucks error while creating threads\n");
+            fprintf(stderr,"Trucks error while creating threads\n");
 
             for(int j = 0; j < i; j++) {
                 pthread_kill(truck_threads[j], SIGTERM);
@@ -234,7 +234,7 @@ int main() {// Open semaphore used to signal end of loading
     for(int i = 0; i < number_of_truck_threads; i++) {
         res = pthread_join(truck_threads[i], NULL);
         if(res != 0) {
-            printf("Error joining thread - manual action may be required\n");
+            fprintf(stderr,"Error joining thread - manual action may be required\n");
         }
     }
 

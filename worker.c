@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "common.h"
 #include "messages.h"
@@ -63,25 +64,10 @@ int main(int argc, char** argv) {
         exit(1);
     };
 
-
-    //int defout = dup(1);
-    //if(defout <0){
-    //    printf("Worker error: can't dump(2): %s\n",  strerror(errno));
-    //    exit(1);
-    //}
-
-    //int file = open( "worker_log.txt", O_WRONLY | O_CREAT, 0600);
-    //if(file ==-1){
-    //    printf("Worker error: creating log files failed: %s\n",  strerror(errno));
-    //    exit(1);
-    //}
-    //int file2 = dup2(file,STDOUT_FILENO);
-    //    if(file2 ==-1){
-    //    printf("Worker error: duplicate a file desriptor failed: %s\n",  strerror(errno));
-    //    exit(1);
-    //}    
-
     printf("Worker PID %d reporting ready for work! Waiting for signal...\n", getpid());
+
+    
+
 
     // Buffer for receiving and sending messages
     message_t msg_recv_buf = { 0 };
@@ -123,8 +109,23 @@ int main(int argc, char** argv) {
     }
     
     int worker_id = msg_recv_buf.data[0];
-    printf("Worker PID %d received SIGNAL_START set to APPROVE, and was assigned worker ID %d, starting work!\n", getpid(), worker_id);
 
+    int defout = dup(1);
+    char filename[20];
+    snprintf(filename, sizeof(filename), "worker%d.log",worker_id);
+    int fd = open( filename, O_WRONLY | O_CREAT, 0600);
+    if(fd ==-1){
+        printf("Worker error: creating log files failed: %s\n",  strerror(errno));
+        exit(1);
+    }
+    int fd2 = dup2(fd,STDOUT_FILENO);
+    if(fd2 ==-1){
+        printf("Worker error: duplicate a file desriptor failed: %s\n",  strerror(errno));
+        exit(1);
+    }
+  
+    printf("Worker PID %d received SIGNAL_START set to APPROVE, and was assigned worker ID %d, starting work!\n", getpid(), worker_id);
+    printf("[P%d] EVENT_WORKER_STARTED", worker_id);
     // worker will produce bricks until he is signaled to stop, by setting the flag up
     while(!worker_stop_flag) {
         simulate_work(); // Work on the brick for a moment
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
             res = mq_send(conveyor_input_queue, (char*) &msg_send_buf, sizeof(msg_send_buf), 0);
 
             if(res < 0) {
-                printf("Worker ID %ld error sending message: %s\n", worker_id, strerror(errno));
+                fprintf(stderr, "Worker ID %ld error sending message: %s\n", worker_id, strerror(errno));
                 mq_close(response_queue);
                 mq_close(conveyor_input_queue);
                 exit(1);
@@ -147,21 +148,21 @@ int main(int argc, char** argv) {
             errno = 0; // receive acknolwedgement of the brick, and check if it is approval or deny
             nbytes = mq_receive(response_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL);
             if(nbytes < 0) {
-                printf("Worker ID %ld error receiving message: %s\n", worker_id, strerror(errno));
+                fprintf(stderr,"Worker ID %ld error receiving message: %s\n", worker_id, strerror(errno));
                 mq_close(response_queue);
                 mq_close(conveyor_input_queue);
                 exit(1);
             }
 
             if(nbytes < sizeof(msg_recv_buf)) {
-                printf("Worker ID %ld error receiving message: partial read\n", worker_id);
+                fprintf(stderr,"Worker ID %ld error receiving message: partial read\n", worker_id);
                 mq_close(response_queue);
                 mq_close(conveyor_input_queue);
                 exit(1);
             }
 
             if(msg_recv_buf.type != MSG_TYPE_NEW_BRICK_RESP) {
-                printf("Worker ID %ld unexpected message: expected NEW_BRICK_RESP (%d), received %d\n", worker_id, MSG_TYPE_NEW_BRICK_RESP, msg_recv_buf.type);
+                fprintf(stderr,"Worker ID %ld unexpected message: expected NEW_BRICK_RESP (%d), received %d\n", worker_id, MSG_TYPE_NEW_BRICK_RESP, msg_recv_buf.type);
                 mq_close(response_queue);
                 mq_close(conveyor_input_queue);
                 exit(1);
@@ -170,17 +171,18 @@ int main(int argc, char** argv) {
             sleep(1);
         } while(msg_recv_buf.status != MSG_APPROVE); // Keep reminding conveyor about the new bricks, until it accepts it, but wait a second before each attempt
 
-        printf("Worker id %ld succesfully inserted brick into conveyor\n", worker_id);
+        printf("[P%d] EVENT_WORKER_INSERT Succesfully inserted brick into conveyor\n", worker_id);
     };
 
-    //printf("Worker id %ld finished work!\n", worker_id);
-    //fflush(stdout);
-    //if(dup2(defout,1)<0){
-    //    printf("Worker error: cannot redirect output back to stdout: %s\n",  strerror(errno));
-    //   exit(1);
-    //}
-
-    //close(defout);
+    printf("[P%d] EVENT_WORKER_FINISHED Worker finished and is closing work!\n", worker_id);
+    fflush(stdout);
+    if(dup2(defout,1)<0){
+        fprintf(stderr,"Worker error: cannot redirect output back to stdout: %s\n",  strerror(errno));
+        exit(1);
+    }
+    close(fd);
+    close(fd2);
+    close(defout);
     // After we finish work, tell conveyor about it
 
     msg_send_buf.type = MSG_TYPE_END_OF_WORK;
