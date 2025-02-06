@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <semaphore.h>
+#include <time.h>
 
 #include "common.h"
 #include "messages.h"
@@ -110,11 +111,20 @@ int main(int argc, char** argv) {
     int workers_finished[NUM_WORKERS] = { 0 };
 
     // Perform while loop until all workers finished and the conveyor is empty
-    while(!(all_workers_finished(workers_finished) && zone->current_count == 0)) {
+    while(!(all_workers_finished(workers_finished) && zone->current_count == 0) || !zone->trucks_stopped) {
         printf("Conveyor waiting for input. Count: %ld/%ld Mass: %ld/%ld\n", zone->current_count, zone->max_count, zone->current_mass, zone->max_mass);
 
+        struct timespec timeout = { 0 };
+        clock_gettime(CLOCK_REALTIME, &timeout);
+        timeout.tv_sec += 5; // Set timeout to 5 seconds from now
+
         errno = 0; // Attempt to receive a message
-        nbytes = mq_receive(input_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL);
+        nbytes = mq_timedreceive(input_queue, (char*) &msg_recv_buf, sizeof(msg_recv_buf), NULL, &timeout);
+        if(errno == ETIMEDOUT) {
+            puts("Conveyor timed out waiting for a message, re-checking if it should stop");
+            continue;
+        }
+    
         if(nbytes < 0) {
             printf("Conveyor error receiving message: %s\n", strerror(errno));
             perform_cleanup_and_exit(0);

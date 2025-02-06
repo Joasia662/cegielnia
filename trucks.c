@@ -298,6 +298,7 @@ int truck_thread_load_bricks(truck_thread_arg_t* arg, int* current_mass) {
         }
 
         if((arg->zone->leftover_brick + *current_mass > arg->capacity) || truck_leave_early_flag) { // If the brick is too large for us or the flag is set, leave it be and return 255
+            printf("Truck leave condition met - flag status: %d\n", truck_leave_early_flag);
             truck_leave_early_flag = 0; // reset the flag, since we're leaving
             return 255;
         }
@@ -315,10 +316,10 @@ int truck_thread_load_bricks(truck_thread_arg_t* arg, int* current_mass) {
 void* truck_thread_main(void* argv) {
     truck_thread_arg_t* arg = (truck_thread_arg_t*) argv;
     int res = 0;
-    ssize_t nbytes;
-    int current_mass = 0;
+    ssize_t nbytes = 0;
+    int current_mass = 0; // current mass of bricks carried by the truck
 
-    // Send loading request
+    // Send loading request and receive
     message_t msg_send_buf = { 0 };
     message_t msg_recv_buf = { 0 };
 
@@ -332,9 +333,11 @@ void* truck_thread_main(void* argv) {
         }
         puts("Truck thread acquired lock");
 
-        if(arg->zone->current_count == 0 && arg->zone->production_stopped) {
-            pthread_mutex_unlock(arg->mutex);
-            pthread_exit(NULL);
+        // If production is stopped, and there is no more bricks in conveyor, entire process should exit
+        // so we do just that. 
+        if(arg->zone->production_stopped && arg->zone->current_count == 0) {
+            arg->zone->trucks_stopped = 1; // let conveyor know we stopped
+            perform_cleanup_and_exit(0);
         }
 
         // this loop, having gained exclusive access, waits until conveyor will let us load
@@ -360,6 +363,7 @@ void* truck_thread_main(void* argv) {
                 pthread_exit(NULL);
             }
 
+            // Standard error checking of the response
             if(nbytes < sizeof(msg_recv_buf)) {
                 printf("Error trucks thread - partial recv: %s\n", strerror(errno));
                 pthread_mutex_unlock(arg->mutex);
@@ -376,34 +380,48 @@ void* truck_thread_main(void* argv) {
             if(msg_recv_buf.status != MSG_APPROVE) {
                 puts("Loading request denied, resetting");
                 sleep(1); // If we are denied, it may be because conveyor is empty. Sleep a little and retry
-                continue;
+                
+                // Sanity check, if we're being denied repeatedly, check if production isnt stoppd
+                if(arg->zone->production_stopped) {
+                    puts("Truck was being denied, and realised that production has stopped, leaving with what we have");
+                    break;
+                } else {
+                    continue;
+                }
             }
 
             puts("Loading request approved");
 
-            // Here we know we have been approved, now conveyor is waiting for as ignal on the zone_semaphore that we have finished
+            // Here we know we have been approved, now conveyor is waiting for a signal on the zone_semaphore that we have finished
 
+            // the load_bricks function loads bricks until either conveyor is empty, or  truck is full (or receives signal to leave early)
             res = truck_thread_load_bricks(arg, &current_mass);
 
+            // release semaphore since we're done loading
+            sem_post(arg->zone_sem);
+                
             if(res == 0) {
-                printf("Conveyor empty - releasing semaphore from truck thread\n");
-                sem_post(arg->zone_sem); // If conveyor is empty, release the semaphore to let the conveyor refill, and wait a few seconds, then try acquiring loading again
+                printf("Conveyor empty - waiting for it to refill\n");
                 sleep(2);
                 continue;
             }
 
             if(res == 255) { // if we're leaving, release semaphore and just break, since we're going away
                 printf("Truck leaving - releasing semaphore from truck thread\n");
-                sem_post(arg->zone_sem);
                 break;
             }
-        
         } // end of the loop which tries to make conveyor let us load
-    
-        // Go deliver bricks
-        pthread_mutex_unlock(arg->mutex);
-        sleep(arg->sleep_time_in_seconds);
-        current_mass = 0;
 
+        pthread_mutex_unlock(arg->mutex);
+
+        // Go deliver bricks (but only if theres something to deliver - if production stopped we might have left loading empty)
+        if(current_mass > 0) {
+            printf("EVENT_TRUCK_LEAVE(%d) - Truck thread leaving with %d total mass of bricks\n", current_mass, current_mass);
+        
+            sleep(arg->sleep_time_in_seconds);
+            current_mass = 0;
+        }
     } // end of loop that gains exclusive access to the zone
+
+    pthread_exit(NULL);
 }

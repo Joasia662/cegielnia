@@ -48,6 +48,9 @@ struct shared_loading_zone_t {
 
     // Flag to let trucks know that there will be no more bricks
     int production_stopped;
+
+    // Flag to let conveyor know that trucks stopped
+    int trucks_stopped;
 };
 typedef struct shared_loading_zone_t shared_loading_zone_t;
 
