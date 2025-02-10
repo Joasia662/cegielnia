@@ -1,10 +1,14 @@
-This is a multi-threaded simulation of a brickyard, where three workers (marked as P1, P2 and P3) work on a conveyor belt, and each of them produces and throws bricks onto the belt, weighing 1, 2 and 3 units, respectively.
+<h2>Multi-Threaded Simulation Of a Brickyard</h2>
+Three workers (marked as P1, P2 and P3) work on a conveyor belt, and each of them produces and throws bricks onto the belt, weighing 1, 2 and 3 units, respectively.
 
 Using the conveyor structure (production belt), bricks are delivered to trucks, observing the requirements set in the task:
 
 • maximum number of bricks on the belt (K)
+
 • belt capacity (M)
+
 • belt capacity does not exceed the set value (3K<M)
+
 
 At the same time, bricks "ride" off the belt onto the truck in exactly the same order as they were placed on the belt. All trucks have the same capacity C specified by the user. After the truck is full, it goes to transport the load. To simulate this, the truck thread goes to sleep (sleep () function) for a number of seconds defined by the user. A new truck appears in its place immediately, if available. Each employee and each truck is a separate thread.
 Employees create bricks endlessly and trucks deliver them endlessly. To stop the simulation, a distributor command is needed, which is simulated by sending the USR2 signal to the process. It signals the end of production (setting the appropriate flag).
