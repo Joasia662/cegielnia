@@ -11,14 +11,17 @@ Three workers (marked as P1, P2 and P3) work on a conveyor belt, and each of the
 At the same time, bricks "ride" off the belt onto the truck in exactly the same order as they were placed on the belt. All trucks have the same capacity C specified by the user. After the truck is full, it goes to transport the load. To simulate this, the truck thread goes to sleep (sleep () function) for a number of seconds defined by the user. A new truck appears in its place immediately, if available. Each employee and each truck is a separate thread.
 Employees create bricks endlessly and trucks deliver them endlessly. To stop the simulation, a distributor command is needed, which is simulated by sending the USR2 signal to the process. It signals the end of production (setting the appropriate flag).
 
+Data for simulation can be entered by the user, or saved as a text file and loaded into the program by redirecting the standard input from the file in the terminal when starting the simulation. Similarly, it is possible to create a file with logs for testing purposes by redirecting the standard output to a file in the terminal.
+
 To test the correctness of the code, two tests were created:
 
+&emsp;&emsp;&emsp;&emsp;• The first one (verify_sum.py) accepts application logs and, by analyzing events in the conveyor module, checks whether the number 
+&emsp;&emsp;&emsp;&emsp;of bricks entered equals the sum of bricks output.
 
-&emsp;&emsp;&emsp;&emsp;• The first one (verify_sum.py) accepts application logs and, by analyzing events in the conveyor module, checks whether the number of bricks entered equals the sum of bricks output.
+&emsp;&emsp;&emsp;&emsp;• The second one (check_stats.py), by analyzing logs from the worker and truck modules, displays how much work each worker and truck did. 
+&emsp;&emsp;&emsp;&emsp;For example, this allows us to determine which thread used the conveyor module resources more often. Additionally, we check whether the sum of the masses of bricks that were produced and those that were taken away by trucks matches.
 
-&emsp;&emsp;&emsp;&emsp;• The second one (check_stats.py), by analyzing logs from the worker and truck modules, displays how much work each worker and truck did. For example, this allows us to determine which thread used the conveyor module resources more often. Additionally, we check whether the sum of the masses of bricks that were produced and those that were taken away by trucks matches.
 
-Data for simulation can be entered by the user, or saved as a text file and loaded into the program by redirecting the standard input from the file in the terminal when starting the simulation. Similarly, it is possible to create a file with logs for testing purposes by redirecting the standard output to a file in the terminal.
 
 
 The resulting project is divided into modules:
